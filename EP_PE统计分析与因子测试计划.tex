@@ -1,0 +1,396 @@
+\documentclass[UTF8,a4paper,11pt]{ctexart}
+
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,array}
+\usepackage{float}
+\usepackage{pgfplots}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\pgfplotsset{compat=1.18}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.15em}
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.2}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  pdftitle={EP/PE 统计分析与因子测试计划}
+}
+
+\title{\textbf{EP/PE 统计分析与因子测试计划}}
+\author{}
+\date{2026 年 9 月 14 日}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+本文汇总 EP/PE 因子的计算口径、描述性统计和申万一级行业 PE 分布，
+并给出 EP、PB 等估值因子的后续测试计划。当前已经完成因子结果验收和
+描述性分析；截面回归、IC、分层回测、稳健性及交易成本检验均属于后续计划，
+本报告未运行新的回归检验。
+\end{abstract}
+
+\tableofcontents
+\clearpage
+
+\section{第五周工作：EP、PB 等因子测试计划}
+
+在完成数据完整性、准确性和时效性比较后，下一步将检验估值因子是否
+能够稳定预测股票未来收益。测试依次包括测试前验收、截面回归、IC 检验、
+分层回测和稳健性检验。
+
+处理前再次明确因子生产口径：不根据 ST/PT 标记或次新股标记筛除股票，
+次新标记只用于记录；主动置为缺失值的掩码仅来自停牌状态。此外，在行情表
+原始股票代码上排除同时满足 900 开头和 \texttt{.BJ} 结尾的 B 股，共 50 只。
+由于北交所普通股票同样使用 \texttt{.BJ} 后缀，不能仅凭该后缀过滤。
+
+因子生产口径与测试股票池口径应分开管理。后续若在测试层剔除 ST/PT、
+上市未满一年、北交所或新三板股票，该操作只改变当期测试样本，不回写或
+重算已经交付的原始因子；所有筛选标记均须为历史时点可用数据。
+
+\subsection{研究对象与因子方向}
+
+主测试因子采用盈利收益率：
+\begin{equation}
+  \mathrm{EP}_{i,t}
+  =\frac{\mathrm{NP}^{\mathrm{TTM}}_{i,t}}{\mathrm{MV}_{i,t}},
+\end{equation}
+其中，$\mathrm{NP}^{\mathrm{TTM}}_{i,t}$ 为交易日 $t$ 当时已经公开的 TTM 归母净利润，
+$\mathrm{MV}_{i,t}$ 为当日总市值。EP 越大表示估值越低，预期未来收益越高。
+
+交付的原始 PE 为 EP 的倒数，负利润对应负 PE：
+\begin{equation}
+  \mathrm{PE}^{\mathrm{raw}}_{i,t}
+  =\frac{\mathrm{MV}_{i,t}}{\mathrm{NP}^{\mathrm{TTM}}_{i,t}}
+  =\frac{1}{\mathrm{EP}_{i,t}}.
+\end{equation}
+传统市盈率测试仅在 $\mathrm{NP}^{\mathrm{TTM}}_{i,t}>0$ 时进行。由于 PE 在净利润
+接近零时容易产生极端值，并且负 PE 不能被解释为正常估值倍数，本文以 EP
+作为主因子，以正利润样本的 PE 作为稳健性检验。
+
+PB 因子可沿用相同测试框架。为使因子方向与 EP 一致，主测试可使用
+$\mathrm{BP}=1/\mathrm{PB}$，此时 BP 越高代表估值越低、预期收益越高；
+若直接使用 PB，则预期收益方向相反。
+
+\subsection{测试前验收}
+
+虽然数据清洗和因子计算已经完成，但在正式测试前仍需对最终因子表进行
+一次验收，防止数据问题传递至回测结果。
+
+\begin{enumerate}[leftmargin=2.7em]
+  \item 在 MAD 去极值和标准化之前确定历史时点的沪深纯 A 股测试池，
+        在测试层剔除 B 股、北交所和新三板；
+  \item 保留退市股票在实际退市前的历史样本，避免幸存者偏差；
+  \item 保证每个交易日和股票代码只有一条因子记录；
+  \item 财务数据的公告时间不得晚于因子形成时间；
+  \item 同一报告期按照公告时间确定版本顺序，旧公告不得覆盖新公告；
+  \item 保留总市值、TTM 归母净利润、报告期、公告时间、原始 EP/PE 和
+        标准化因子值，确保异常结果可以追溯；
+  \item 检查每日因子覆盖率，并从覆盖率稳定后的首个月末开始正式测试；
+  \item 核对形成日使用的 ST/PT、上市日期和交易状态均为当时已经可得的信息，
+        不得用当前股票名称或未来状态回填历史。
+\end{enumerate}
+
+主测试不使用行业中位数填充缺失的 PE/EP。财务数据缺失具有实际含义，
+直接填充可能人为制造估值信息，因此行业中位数填充仅作为稳健性检验。
+当前因子交付数据没有可靠的历史 ST/PT 字段；在补齐该字段之前，不应使用
+当前名称反推历史 ST 状态。
+
+\subsection{样本与前瞻收益率}
+
+测试频率采用月度。以每月最后一个交易日 $T$ 结束时已经公开的信息形成
+因子，在下一可交易日执行，并持有至下一次调仓。前瞻收益率定义为
+\begin{equation}
+  r^{\mathrm{fwd}}_{i,T+1}
+  =\frac{P^{\mathrm{adj}}_{i,\mathrm{exit}}}
+  {P^{\mathrm{adj}}_{i,\mathrm{entry}}}-1.
+\end{equation}
+
+形成日的主测试样本拟剔除 ST/PT、上市不满一年及因子缺失的股票。
+这属于测试层筛选，不改变因子生产结果；若缺少可靠的历史 ST 或官方上市日期，
+对应筛选应暂缓，并分别报告未筛选基准结果和补齐数据后的敏感性结果。
+停牌、涨停等无法成交的情形在实际执行日处理。收益率统一使用复权价格，
+且不能使用未来交易状态筛选当期统计样本。
+
+\subsection{分期截面回归}
+
+每个月对股票下一期收益率进行一次截面回归：
+\begin{equation}
+  r^{\mathrm{fwd}}_{i,t+1}
+  =\alpha_t+\beta_t X_{i,t}
+  +\gamma_t\ln(\mathrm{MV}_{i,t})
+  +\sum_{k=1}^{K-1}\delta_{k,t}I_{i,k,t}
+  +\varepsilon_{i,t+1},
+\end{equation}
+其中，$X_{i,t}$ 为标准化 EP，$I_{i,k,t}$ 为股票所属行业的哑变量，
+$\ln(\mathrm{MV}_{i,t})$ 用于控制市值效应，$\beta_t$ 为当期因子收益。
+
+主结果计划采用 RLM 稳健回归，以降低异常收益率对结果的影响；同时使用
+OLS 和以市值平方根加权的 WLS 进行对照。需要统计的指标包括：
+
+\begin{itemize}[leftmargin=2.5em]
+  \item 因子收益均值及累计因子收益；
+  \item 因子收益序列的 HAC $t$ 值；
+  \item $\beta_t>0$ 的月份比例；
+  \item 单期回归 $|t|\geq 2$ 的月份比例；
+  \item RLM、OLS 和 WLS 结果的一致性。
+\end{itemize}
+
+对于 EP 或 BP 因子，预期回归系数为正；若直接使用 PE 或 PB，则预期系数为负。
+本阶段目前暂缓，本文不报告新的回归结果。
+
+\subsection{Rank IC 检验}
+
+首先将 EP 对行业和对数市值进行截面回归，使用回归残差
+$X^{\perp}_{i,t}$ 作为行业和市值中性化后的因子暴露。Rank IC 定义为
+\begin{equation}
+  IC_t=\operatorname{Spearman}
+  \left(X^{\perp}_{i,t},r^{\mathrm{fwd}}_{i,t+1}\right),
+  \qquad
+  IR=\frac{\overline{IC}}{\sigma(IC)}.
+\end{equation}
+
+IC 检验应报告 IC 均值、标准差、HAC $t$ 值、$IC>0$ 的月份比例、
+$|IC|>0.02$ 的月份比例以及 IR。还应逐年统计上述指标，检查因子的
+预测能力是否集中在少数年份。
+
+\subsection{行业内分层回测}
+
+每个调仓日在各一级行业内部按照 EP 从低到高划分为五组，再将各行业
+相同序号的组别合并为全市场组合。主结果采用市值加权，同时报告等权
+结果。多空组合收益定义为
+\begin{equation}
+  R^{\mathrm{LS}}_t=R^{Q_5}_t-R^{Q_1}_t,
+\end{equation}
+其中，$Q_5$ 为 EP 最高、估值最低的一组，$Q_1$ 为 EP 最低的一组。
+
+各组及多空组合需要统计年化收益、累计收益、基准超额收益、年化波动率、
+夏普比率、最大回撤、信息比率、胜率和换手率。通过五组收益排列以及
+组序号与收益之间的 Spearman 相关系数检验因子单调性。
+
+基准优先选择中证全指；若缺少指数数据，可使用测试股票池的市值加权
+收益作为内部基准。
+
+\subsection{交易成本与稳健性检验}
+
+根据组合换手率计算扣除交易成本后的收益，并设置不同单边成本情景。
+此外，还需要完成以下检验：
+
+\begin{enumerate}[leftmargin=2.7em]
+  \item 分年度以及市场上涨、下跌阶段统计回归、IC 和多空收益；
+  \item 分别在大、中、小市值股票中进行测试；
+  \item 比较全样本 EP 与仅包含正利润公司的传统 PE 样本；
+  \item 比较等权与市值加权、五组与十组、T+1 与 T+2 生效结果；
+  \item 比较不同 MAD 参数下测试结论是否稳定；
+  \item 固定行情和股票池，分别使用 Wind 与 base 财报构造因子，
+        比较两套因子的覆盖率、秩相关性、IC 和多空收益；
+  \item 将最后一段时间保留为样本外区间，不根据样本外结果调整参数。
+\end{enumerate}
+
+\subsection{综合评价标准}
+
+\begin{table}[htbp]
+  \centering
+  \caption{PE/EP 因子综合评价标准}
+  \begin{tabularx}{\textwidth}{lYY}
+    \toprule
+    评价维度 & 核心指标 & 判断方法 \\
+    \midrule
+    有效性 & 因子收益及 HAC $t$ 值
+      & 收益方向符合预期，且具有统计与经济意义 \\
+    预测能力 & Rank IC、IR
+      & IC 方向稳定，均值不依赖少数极端月份 \\
+    单调性 & 五组收益及 $Q_5-Q_1$
+      & 各组收益大体单调，多空收益方向正确 \\
+    稳定性 & 年度及市场状态分组
+      & 结果不依赖少数月份或单一年份 \\
+    可交易性 & 换手率及扣费后收益
+      & 扣除合理交易成本后仍具有正收益 \\
+    数据稳健性 & Wind 与 base 测试结果
+      & 核心结论不因财报数据来源而反转 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+只有当截面回归、Rank IC 和分层回测的方向基本一致，样本外结果稳定，
+并且扣除交易成本后仍有收益时，才能认为 PE/EP 因子具有较可靠的实际
+选股能力。所有阈值和参数应在查看样本外结果之前固定，避免结果导向调参。
+
+\subsection{实施顺序与输出结果}
+
+后续测试按照以下顺序开展：
+\[
+\begin{aligned}
+  &\text{测试前验收}
+  \longrightarrow \text{前瞻收益构造}
+  \longrightarrow \text{RLM/OLS/WLS 截面回归} \\
+  &\hspace{5em}\longrightarrow \text{Rank IC}
+  \longrightarrow \text{行业内分层}
+  \longrightarrow \text{稳健性与成本检验}.
+\end{aligned}
+\]
+
+最终形成因子数据验收表、截面回归汇总表、IC 汇总表、五组及多空组合
+绩效表、年度稳定性表和两库因子测试对比表，作为判断该因子是否能够进入
+后续多因子模型的依据。当前状态为：数据验收和描述性统计已完成，其余测试待执行。
+
+\clearpage
+\section{EP/PE 因子结果统计}
+
+\subsection{样本与计算口径}
+
+样本期为 2020 年 1 月 2 日至 2025 年 12 月 31 日，共 1,455 个交易日。
+在行情表原始代码上排除 50 只同时满足 900 开头和 \texttt{.BJ} 结尾的 B 股后，
+样本包含 5,966 只股票和 7,089,124 条股票日记录。ST/PT 股票不作筛选，
+次新股标记仅用于记录，只有停牌日被主动置为缺失值。
+
+原始因子定义为
+\begin{equation}
+  \mathrm{EP}_{i,t}
+  =\frac{\text{TTM 归母净利润}_{i,t}}{\text{总市值}_{i,t}},
+  \qquad
+  \mathrm{PE}_{i,t}=\frac{1}{\mathrm{EP}_{i,t}}.
+\end{equation}
+行情日 $t$ 仅使用截至当日收盘后已经可获得的财务信息，并将因子用于下一交易日。
+原始 EP 和 PE 各有 6,719,132 条有效观测，有效率均为 94.78\%。
+
+\begin{table}[htbp]
+  \centering
+  \caption{原始 EP/PE 描述性统计}
+  \label{tab:ep-pe-descriptive-combined}
+  \begin{tabular}{lrr}
+    \toprule
+    统计量 & EP & PE \\
+    \midrule
+    有效观测数 & 6,719,132 & 6,719,132 \\
+    均值 & 0.006932 & $-12.9994$ \\
+    标准差 & 0.174816 & 12,694.9046 \\
+    1\% 分位数 & $-0.416730$ & $-589.5095$ \\
+    中位数 & 0.021173 & 26.2371 \\
+    99\% 分位数 & 0.174646 & 752.3711 \\
+    负值占比 & 21.36\% & 21.36\% \\
+    MAD 截断占比 & 11.05\% & 14.16\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+最新截面为 2025 年 12 月 31 日，共有 5,204 条有效观测；EP 中位数为
+0.01313，PE 中位数为 27.31 倍，负 EP/PE 占比为 28.57\%。经过逐日
+MAD 去极值和 Z 标准化后，EP 和 PE 各保留 6,719,131 条有效结果。
+
+全样本中，PE 的最小值和最大值分别约为 $-3.73\times10^{6}$ 倍和
+$5.39\times10^{5}$ 倍，说明 EP 接近零时倒数变换会形成明显长尾。
+因此，PE 更适合使用中位数、分位数或去极值结果进行解释，EP 则更适合
+直接进行横截面比较。
+
+\subsection{分行业原始 PE}
+
+申万一级行业分析使用 2025 年 12 月 31 日最新截面，按行业汇总未经 MAD
+去极值和 Z 标准化的原始 PE。为避免接近零的 EP 使 PE 均值被极端值主导，
+柱高采用行业内原始 PE 的中位数。亏损公司的负 PE 仍保留在统计中。
+
+行业中位 PE 最高的三个行业分别为通信（57.15 倍）、国防军工（53.84 倍）
+和综合（53.22 倍）。房地产的行业中位 PE 为 $-1.89$ 倍，其负 PE 比例为
+62.00\%；负 PE 表示行业内亏损观测较多，不应解释为负估值倍数。
+图~\ref{fig:industry-raw-pe-combined} 中红色虚线表示全市场原始 PE 中位数
+27.31 倍。
+
+\clearpage
+\begin{figure}[p]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      xbar,
+      width=0.94\textwidth,
+      height=0.80\textheight,
+      xmin=-8,
+      xmax=68,
+      bar width=4.2pt,
+      symbolic y coords={
+        房地产,银行,建筑装饰,传媒,煤炭,纺织服饰,钢铁,建筑材料,
+        交通运输,环保,公用事业,非银金融,石油石化,轻工制造,
+        农林牧渔,医药生物,食品饮料,计算机,社会服务,基础化工,
+        家用电器,电力设备,美容护理,汽车,机械设备,商贸零售,
+        有色金属,电子,综合,国防军工,通信
+      },
+      ytick={
+        房地产,银行,建筑装饰,传媒,煤炭,纺织服饰,钢铁,建筑材料,
+        交通运输,环保,公用事业,非银金融,石油石化,轻工制造,
+        农林牧渔,医药生物,食品饮料,计算机,社会服务,基础化工,
+        家用电器,电力设备,美容护理,汽车,机械设备,商贸零售,
+        有色金属,电子,综合,国防军工,通信
+      },
+      yticklabel style={font=\scriptsize},
+      xlabel={行业内原始 PE 中位数（倍）},
+      xlabel style={font=\small},
+      xtick distance=10,
+      xmajorgrids=true,
+      grid style={gray!25},
+      axis line style={gray!65},
+      tick style={gray!65},
+      enlarge y limits=0.012,
+      point meta=x,
+      nodes near coords={\pgfmathprintnumber[fixed,precision=2]{\pgfplotspointmeta}},
+      every node near coord/.append style={font=\tiny},
+    ]
+      \addplot+[
+        draw=none,
+        fill={rgb,255:red,59;green,111;blue,182},
+        bar shift=0pt
+      ] coordinates {
+        (6.0471,银行)
+        (11.6142,建筑装饰)
+        (12.7690,传媒)
+        (13.4089,煤炭)
+        (15.8862,纺织服饰)
+        (16.3224,钢铁)
+        (16.7669,建筑材料)
+        (17.2746,交通运输)
+        (18.4644,环保)
+        (18.9537,公用事业)
+        (19.3215,非银金融)
+        (20.7985,石油石化)
+        (21.9023,轻工制造)
+        (23.5402,农林牧渔)
+        (24.8129,医药生物)
+        (24.8626,食品饮料)
+        (26.3327,计算机)
+        (28.6367,社会服务)
+        (28.8529,基础化工)
+        (28.9121,家用电器)
+        (30.3587,电力设备)
+        (34.3232,美容护理)
+        (35.3048,汽车)
+        (37.2771,机械设备)
+        (37.9843,商贸零售)
+        (38.7324,有色金属)
+        (50.1694,电子)
+        (53.2198,综合)
+        (53.8438,国防军工)
+        (57.1511,通信)
+      };
+      \addplot+[
+        draw=none,
+        fill={rgb,255:red,182;green,73;blue,73},
+        bar shift=0pt
+      ] coordinates {
+        (-1.8940,房地产)
+      };
+      \draw[red!70!black,dashed,line width=0.8pt]
+        (axis cs:27.3071,房地产) --
+        (axis cs:27.3071,通信);
+    \end{axis}
+  \end{tikzpicture}
+  \caption{2025 年 12 月 31 日申万一级行业原始 PE 中位数。样本包含
+  5,200 条 PE 和行业分类均有效的股票记录；红色虚线为全市场原始 PE
+  中位数 27.31 倍，红色柱表示行业中位 PE 为负。}
+  \label{fig:industry-raw-pe-combined}
+\end{figure}
+
+\end{document}

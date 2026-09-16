@@ -1,0 +1,25 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+
+# Large generated data and analysis outputs
+中间结果/
+因子结果/
+回归结果/
+图形/
+
+# Generated document artifacts
+*.aux
+*.log
+*.out
+*.pdf
+
+# Machine-local configuration
+config/paths.local.toml
+
+# Operating-system files
+Thumbs.db
+.DS_Store

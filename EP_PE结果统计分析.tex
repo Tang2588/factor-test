@@ -1,0 +1,340 @@
+\documentclass[UTF8,a4paper,11pt]{ctexart}
+
+\usepackage[a4paper,margin=2.25cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  pdftitle={EP/PE 因子结果统计分析}
+}
+\graphicspath{{图形/}}
+\setlength{\parindent}{2em}
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.2}
+\newcommand{\EP}{\mathrm{EP}}
+\newcommand{\PE}{\mathrm{PE}}
+% Keep Chinese directory names in the CJK text font and ASCII filenames monospaced.
+\newcommand{\filepath}[2]{\textnormal{#1/}\texttt{#2}}
+
+\title{\textbf{EP / PE 因子结果统计分析}}
+\author{基于 2026 年 9 月 14 日重算结果}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+本文对 EP（收益率）和 PE（市盈率）因子交付结果进行描述性统计，不进行回归检验。
+样本覆盖 2020 年 1 月 2 日至 2025 年 12 月 31 日，共 1,455 个交易日。
+行情表中同时满足 \textquotedblleft 900\textquotedblright 开头和
+\textquotedblleft .BJ\textquotedblright 结尾的 50 只 B 股被排除；
+ST/PT 不作筛选，次新标记只作记录，停牌日主动置空因子。
+清洗后面板包含 7,089,124 条股票日记录，原始 EP 和 PE 各有 6,719,132 条有效观测，
+有效率为 94.78\%。统计结果显示，EP 分布相对平稳，而 PE 因倒数变换在 EP 接近零时
+产生极端尾部，因此 PE 的均值和标准差不宜作为估值中心的主要判断依据。
+\end{abstract}
+
+\section{数据与计算口径}
+
+\subsection{数据范围与交付文件}
+
+本报告使用交付目录
+\textnormal{D:/因子计算/市盈率/EP因子\_交付版} 中的最新结果文件：
+
+\begin{itemize}[leftmargin=2.5em]
+  \item \filepath{中间结果}{ep\_raw.parquet}：点时间对齐后的原始 EP；
+  \item \filepath{中间结果}{pe\_raw.parquet}：点时间对齐后的原始 PE；
+  \item \filepath{因子结果}{ep.parquet}：经过 MAD 去极值和横截面 Z 标准化的 EP；
+  \item \filepath{因子结果}{pe.parquet}：经过 MAD 去极值和横截面 Z 标准化的 PE；
+  \item \filepath{中间结果}{\_mask.parquet}：停牌、次新标记和 ST 未筛选留痕。
+\end{itemize}
+
+原始结果和正式结果均采用
+\[
+  \text{index}=(\text{date},\text{stock\_code}),\qquad
+  \text{columns}=\{\texttt{signal}\}.
+\]
+原始 EP/PE 的 \texttt{signal} 分别表示原始 EP/PE；正式结果中的
+\texttt{signal} 表示标准化后的因子值。
+
+\subsection{公式与点时间}
+
+对股票 $i$ 和行情日 $t$，原始 EP 定义为
+\begin{equation}
+  \EP_{i,t} =
+  \frac{\text{TTM 归母净利润}_{i,t}}{\text{总市值}_{i,t}}.
+\end{equation}
+PE 按原始 EP 的倒数计算：
+\begin{equation}
+  \PE_{i,t}=\frac{1}{\EP_{i,t}}
+  =\frac{\text{总市值}_{i,t}}{\text{TTM 归母净利润}_{i,t}}.
+\end{equation}
+T 日使用截至 T 日收盘后的可用财务信息，切点为
+\[
+  \texttt{signal\_cutoff}
+  =\text{T 日}+1\text{ 天}-1\text{ 纳秒},
+\]
+并用于 T+1 日交易。负利润保留为负 EP，并对应形成负 PE；EP 等于零时，
+PE 没有定义，置为缺失。
+
+\subsection{样本过滤}
+
+B 股过滤在统一为六位代码之前直接作用于行情表原始
+\texttt{stock\_code}，条件为同时满足：
+\[
+  \texttt{startswith("900")} \quad\land\quad
+  \texttt{endswith(".BJ")}.
+\]
+本次识别出 50 只唯一股票，名单记录在
+\filepath{中间结果}{b\_share\_codes.parquet}。不能单独使用
+\textquotedblleft .BJ\textquotedblright 后缀，因为该条件会把北交所普通股票一并排除。
+
+本次不执行 ST/PT 筛选；次新股只计算并保存 \texttt{is\_cixin} 标记，
+不因次新标记把因子置为缺失。主动掩码仅来自行情表的
+\texttt{suspended==1} 或 \texttt{status} 等于“停牌”。TTM 缺失、总市值无效等
+情况属于计算条件不足导致的自然缺失，不是 ST 或次新筛选。
+
+\section{样本覆盖与缺失分析}
+
+\begin{table}[H]
+\centering
+\caption{面板规模和样本处理统计}
+\begin{tabular}{lrr}
+\toprule
+项目 & 数值 & 占相应总量 \\
+\midrule
+原始行情行数 & 7,155,034 & 100.00\% \\
+原始行情股票数 & 6,016 & 100.00\% \\
+排除 B 股股票数 & 50 & 0.83\% \\
+排除 B 股行情行数 & 65,910 & 0.92\% \\
+清洗后行情行数 & 7,089,124 & 99.08\% \\
+清洗后股票数 & 5,966 & 99.17\% \\
+停牌标记行数 & 22,022 & 0.31\% \\
+次新标记行数（仅记录） & 473,286 & 6.68\% \\
+原始有效 EP & 6,719,132 & 94.78\% \\
+非停牌但 EP 缺失 & 347,970 & 4.91\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+停牌行的原始 EP 非缺失数为 0，说明停牌掩码确实生效。与此同时，
+次新标记行中仍有 422,448 条有效 EP，表明次新标记没有被误用为因子过滤条件。
+原始 EP 和 PE 的有效数相同，是因为本次数据中没有有效的零 EP；代码仍保留了
+EP 为零时将 PE 置为缺失的防御性规则。
+
+\subsection{年度覆盖率}
+
+\begin{table}[H]
+\centering
+\caption{原始 EP/PE 的年度覆盖和中心位置}
+\small
+\begin{tabular}{rrrrrrr}
+\toprule
+年份 & 面板行数 & 有效 EP & 覆盖率 & 负 EP 占比 & EP 中位数 & PE 中位数 \\
+\midrule
+2020 & 955,604 & 673,801 & 70.51\% & 17.98\% & 0.01896 & 32.36 \\
+2021 & 1,076,810 & 1,045,644 & 97.11\% & 16.13\% & 0.02338 & 28.90 \\
+2022 & 1,174,346 & 1,156,503 & 98.48\% & 18.09\% & 0.02434 & 26.68 \\
+2023 & 1,260,984 & 1,253,411 & 99.40\% & 21.98\% & 0.02176 & 25.69 \\
+2024 & 1,296,743 & 1,291,935 & 99.63\% & 23.93\% & 0.02312 & 22.01 \\
+2025 & 1,324,637 & 1,297,838 & 97.98\% & 27.07\% & 0.01516 & 26.30 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+2020 年覆盖率明显较低，主要反映点时间财务数据的起始边界：在较早日期，
+许多股票尚没有已经披露且能够构成完整 TTM 的报告。2021--2024 年覆盖率逐步
+稳定在 97\% 以上，2025 年下降到 97.98\%，仍处于较高水平。负 EP 占比从
+2020 年的 17.98\% 上升到 2025 年的 27.07\%，说明亏损观测在后期横截面中的
+占比有所提高；这类观测在 EP 中被保留，而不是被当作缺失样本删除。
+
+\section{原始 EP 的统计特征}
+
+\begin{table}[H]
+\centering
+\caption{原始 EP 与原始 PE 的整体分布统计}
+\begin{tabular}{lrr}
+\toprule
+统计量 & 原始 EP & 原始 PE \\
+\midrule
+有效观测数 & 6,719,132 & 6,719,132 \\
+均值 & 0.006932 & -12.9994 \\
+总体标准差 & 0.174816 & 12,694.9046 \\
+1\% 分位数 & -0.416730 & -589.5095 \\
+25\% 分位数 & 0.003917 & 9.4817 \\
+中位数 & 0.021173 & 26.2371 \\
+75\% 分位数 & 0.042048 & 53.2380 \\
+99\% 分位数 & 0.174646 & 752.3711 \\
+最小值 & -26.305975 & -3,732,650.4560 \\
+最大值 & 7.495990 & 539,273.3383 \\
+负值占比 & 21.36\% & 21.36\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+EP 的中位数为 0.021173，意味着典型有效观测的收益率约为 2.12\%；
+正 EP 子样本的中位数为 0.028682，对应正 PE 中位数 34.86 倍。
+均值低于中位数，主要因为少数极端负 EP 拉低了均值。最小值
+$-26.31$ 表示个别观测的 TTM 亏损规模相对于总市值极大，应结合公司
+一次性损益、重组或市值异常进一步复核；该极端值会在 MAD 环节被限制。
+
+\subsection{最新截面}
+
+最新交易日为 2025 年 12 月 31 日，截面统计如下：
+
+\begin{table}[H]
+\centering
+\caption{2025 年 12 月 31 日原始 EP/PE 截面}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lrrrrrrrrrrr}
+\toprule
+变量 & 有效数 & 均值 & 标准差 & 1\% & 25\% & 中位数 & 75\% & 99\% & 最小 & 最大 & 负值 \\
+\midrule
+EP & 5,204 & 0.00441 & 0.09350 & -0.28063 & -0.00394 & 0.01313 & 0.03235 & 0.13325 & -2.44334 & 0.28328 & 28.57\% \\
+PE & 5,204 & -2.13403 & 1,703.22031 & -1,047.95439 & -8.94126 & 27.30706 & 64.63155 & 1,058.59266 & -62,033.85359 & 30,445.06709 & 28.57\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+最新截面的负 EP 占比为 28.57\%，高于全样本池化的 21.36\%。最新截面的
+EP 中位数为 0.01313，低于全样本中位数，说明该日典型股票的收益率相对偏低。
+PE 中位数仍为正且约为 27.31 倍，但均值为负、标准差达到 1,703.22，
+再次说明 PE 的均值被接近零 EP 的极端倒数严重影响。
+
+\section{原始 PE 的非线性与 EP--PE 关系}
+
+\subsection{倒数关系的精确性}
+
+在所有非零且非缺失的 EP 观测上，原始 PE 与 $1/\EP$ 的最大绝对误差为
+0，说明两个结果使用了完全一致的点时数据和倒数定义。正、负两个分支内的
+Spearman 相关系数均为 $-1$，符合倒数函数在各自定义域上的严格单调递减关系。
+
+\begin{table}[H]
+\centering
+\caption{EP--PE 分支和近零 EP 观测}
+\begin{tabular}{lrrr}
+\toprule
+子样本 & 观测数 & 占有效 EP & 代表性统计 \\
+\midrule
+EP $>0$ & 5,284,019 & 78.64\% & EP 中位数 0.02868，PE 中位数 34.86 \\
+EP $<0$ & 1,435,113 & 21.36\% & EP 中位数 -0.03529，PE 中位数 -28.34 \\
+$|\EP|<0.005$ & 510,687 & 7.20\% & 其中 $|\PE|>300$ 的比例 63.74\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+全样本的 Pearson 相关系数仅为 0.00049，Spearman 相关系数为 0.00780。
+这两个整体相关系数不能用来否定倒数关系：EP 和 PE 在正负分支之间存在
+断点，且倒数变换在零附近高度非线性。对研究和展示而言，EP 更适合直接
+进行横截面比较；PE 应优先使用中位数、分位数或经过截尾后的结果，而不应
+直接解读其均值。
+
+\subsection{PE 的金融含义}
+
+本文沿用 \textquotedblleft 负 EP 对应负 PE\textquotedblright 的数学延拓，以保留亏损股票的方向信息。
+负 PE 不应被解释为存在经济意义上的负估值倍数，而应理解为亏损状态下的
+标记。若后续研究需要遵循传统财务终端口径，可以另行把亏损股票的 PE
+置为缺失；这会改变 PE 的覆盖率和样本选择，但不会改变本报告中的 EP 原始结果。
+
+\section{MAD 去极值与标准化结果}
+
+\begin{table}[H]
+\centering
+\caption{EP/PE 的横截面 MAD 和 Z 标准化统计}
+\begin{tabular}{lrrrr}
+\toprule
+因子 & 原始有效数 & MAD 截断数 & 截断占比 & 最终 Z 有效数 \\
+\midrule
+EP & 6,719,132 & 742,776 & 11.05\% & 6,719,131 \\
+PE & 6,719,132 & 951,580 & 14.16\% & 6,719,131 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+EP 和 PE 各有 1 个横截面无法形成有效 Z 值，原因是数据起始日只有 1 个
+有效原始观测，横截面标准差为零。其余 1,454 个非恒定交易日的标准化结果
+满足：
+\[
+\begin{array}{lll}
+\EP^Z\text{ 日均值最大绝对误差} & =2.22\times 10^{-16},&
+\EP^Z\text{ 日标准差最大误差}=3.89\times 10^{-15},\\
+\PE^Z\text{ 日均值最大绝对误差} & =3.32\times 10^{-16},&
+\PE^Z\text{ 日标准差最大误差}=3.77\times 10^{-15}.
+\end{array}
+\]
+PE 的 MAD 截断比例高于 EP（14.16\% 对 11.05\%），与 PE 在零附近放大
+微小收益率差异的数学特征一致。若将 PE 用于排序或建模，应明确是否使用
+原始 PE、MAD 处理后的 PE，还是最终 Z 标准化 PE。
+
+\section{图形检查}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth]{ep_原始分布.png}
+\caption{原始 EP 分布：左侧为全样本池化，右侧为最新截面。}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth]{pe_分布.png}
+\caption{原始 PE 分布：零附近倒数变换造成明显的长尾。}
+\end{figure}
+
+\section{结论}
+
+\begin{enumerate}[leftmargin=2.5em]
+  \item 样本口径已经按要求收敛：不筛 ST/PT，不把次新标记用于置空，
+        仅对停牌日主动置 NaN，并从行情表排除 50 只 \texttt{900xxx.BJ} B 股。
+  \item EP 的原始有效率为 94.78\%，负 EP 占 21.36\%。保留负 EP 避免了
+        把亏损股票机械地从收益率样本中删除。
+  \item PE 与 EP 在非零观测上严格互为倒数，但 PE 的极端尾部非常明显：
+        全样本最小值约为 -373 万倍、最大值约为 53.9 万倍。PE 中位数比均值
+        更有代表性，且应注意负 PE 的亏损含义。
+  \item 对横截面因子使用时，EP 的线性和稳定性更好；PE 结果可作为估值
+        展示和交叉核对，但应明确其倒数变换和尾部处理口径。
+  \item 本报告仅做描述性统计，未运行回归检验，也不据此给出长期收益预测。
+\end{enumerate}
+
+\clearpage
+\appendix
+\section{结果文件和复核命令}
+
+主要结果文件的字段约定如下：
+
+\begin{longtable}{p{0.43\textwidth}p{0.47\textwidth}}
+\toprule
+文件 & 内容 \\
+\midrule
+\endhead
+\filepath{中间结果}{ep\_raw.parquet} & 原始 EP，未去极值、未标准化。\\
+\filepath{中间结果}{pe\_raw.parquet} & 原始 PE，等于非零 EP 的倒数。\\
+\filepath{中间结果}{ep\_mad.parquet} & MAD 处理后的 EP。\\
+\filepath{中间结果}{pe\_mad.parquet} & MAD 处理后的 PE。\\
+\filepath{因子结果}{ep.parquet} & 横截面 Z 标准化 EP。\\
+\filepath{因子结果}{pe.parquet} & 横截面 Z 标准化 PE。\\
+\filepath{中间结果}{b\_share\_codes.parquet} & 50 只被排除的 B 股名单。\\
+\filepath{中间结果}{\_mask.parquet} & 停牌、次新和 ST 未筛选标记。\\
+\bottomrule
+\end{longtable}
+
+本报告对应的描述性统计可由以下脚本结果复核：
+\begin{itemize}[leftmargin=2.5em]
+  \item \texttt{python factor\_verify.py}
+  \item \texttt{python }EP因子交付验证.py
+  \item \texttt{python }plot\_ep\_pe分布.py
+\end{itemize}
+上述命令不包含回归检验。
+
+\end{document}
