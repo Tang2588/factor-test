@@ -21,6 +21,9 @@ __pycache__/
 *.pdf
 *.zip
 
+# 例外：运行日志需要纳入版本管理，其余 *.log 仍视为编译缓存
+!日志/runs/*.log
+
 # Re-creatable document bundles
 latex_assets/
 overleaf_package/
