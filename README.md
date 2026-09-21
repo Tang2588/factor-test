@@ -29,6 +29,10 @@ python "代码\cross_section_rlm.py"                       # 默认因子 ep
 python "代码\cross_section_rlm.py" --factor pb            # 换成其它因子
 python "代码\cross_section_rlm.py" --factor "D:/其它路径/my.parquet"   # 任意路径
 
+# Rank IC 检验：读取因子数据并输出 IC / IR 统计结果（实测约 25 秒）
+python "代码\rank_ic.py"
+python "代码\rank_ic.py" --factor pb
+
 # 交付验收
 python "代码\factor_verify.py"
 ```
@@ -41,6 +45,7 @@ python "代码\factor_verify.py"
 | 数据清洗 | `代码/step1`–`step4` | 样本筛选、利润表点时间版本、TTM 归母净利润、点时间对齐与原始 EP/PE |
 | 因子计算 | `代码/step5_MAD去极值_Z标准化.py` | 逐日横截面 MAD 去极值与 Z 标准化 |
 | 回归分析 | `代码/cross_section_rlm.py`、`代码/cross_section_ols.py` | 通用月度横截面 Huber RLM 与同口径 OLS，读取任意因子文件 |
+| IC 检验 | `代码/rank_ic.py` | 通用月度 Rank IC：行业与市值中性化后计算 IC / IR，读取任意因子文件 |
 | 分析与绘图 | `代码/plot_*`、`代码/analyze_mad_standardization.py` | 描述性统计、分布图、行业图 |
 | 验收 | `代码/factor_verify.py`、`代码/EP因子交付验证.py` | 独立一致性检查 |
 
@@ -63,7 +68,7 @@ python "代码\cross_section_rlm.py" --factor pb    # → 回归结果/pb/RLM_H1
 | `中间结果/` | 原始 EP/PE、财务版本、点时间审计、处理过程数据 | 否 |
 | `因子结果/` | 最终标准化 EP、PE 因子 | 否 |
 | `标准化统计/` | MAD、Z 标准化统计表与图形 | 否 |
-| `回归结果/` | 按因子分目录：`回归结果/<因子名>/RLM_H1_独立同方差/`、`回归结果/<因子名>/OLS_月度/`，另含 `_历史口径存档/` | 否 |
+| `回归结果/` | 按因子分目录：`回归结果/<因子名>/RLM_H1_独立同方差/`、`OLS_月度/`、`RankIC/`，另含 `_历史口径存档/` | 否 |
 | `图形/` | 文档使用的公共图形 | 否 |
 
 ## 主要文档
