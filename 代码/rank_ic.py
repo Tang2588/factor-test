@@ -180,7 +180,13 @@ def summarize_period(group: pd.DataFrame, label: str) -> dict[str, float | str |
         "ic_positive_ratio": float(group["ic_neutral"].gt(0).mean()),
         "ic_strong_ratio": float(group["ic_neutral"].abs().gt(IC_STRONG_THRESHOLD).mean()),
         "ic_raw_mean": raw["mean"],
+        "ic_raw_std": raw["std"],
+        "ic_raw_median": float(group["ic_raw"].median()),
+        "ic_raw_t": raw["t"],
+        "ic_raw_p": raw["p"],
         "ic_raw_ir": raw["ir"],
+        "ic_raw_positive_ratio": float(group["ic_raw"].gt(0).mean()),
+        "ic_raw_strong_ratio": float(group["ic_raw"].abs().gt(IC_STRONG_THRESHOLD).mean()),
         "n_mean": float(group["n"].mean()),
         "neutral_r2_mean": float(group["neutral_r2"].mean()),
     }
@@ -276,13 +282,13 @@ def save_report(
         "|---|---:|---:|",
         f"| 检验月份 | {int(summary['months'])} | {int(summary['months'])} |",
         f"| IC 均值 | {num(summary['ic_mean'])} | {num(summary['ic_raw_mean'])} |",
-        f"| IC 中位数 | {num(summary['ic_median'])} | - |",
-        f"| IC 标准差 | {num(summary['ic_std'])} | - |",
+        f"| IC 中位数 | {num(summary['ic_median'])} | {num(summary['ic_raw_median'])} |",
+        f"| IC 标准差 | {num(summary['ic_std'])} | {num(summary['ic_raw_std'])} |",
         f"| IR | {num(summary['ir'])} | {num(summary['ic_raw_ir'])} |",
-        f"| IC 均值的 IID t 值 | {num(summary['ic_t'])} | - |",
-        f"| IC 均值的 IID p 值 | {num(summary['ic_p'])} | - |",
-        f"| IC > 0 的月份比例 | {pct(summary['ic_positive_ratio'])} | - |",
-        f"| abs(IC) > {IC_STRONG_THRESHOLD} 的月份比例 | {pct(summary['ic_strong_ratio'])} | - |",
+        f"| IC 均值的 IID t 值 | {num(summary['ic_t'])} | {num(summary['ic_raw_t'])} |",
+        f"| IC 均值的 IID p 值 | {num(summary['ic_p'])} | {num(summary['ic_raw_p'])} |",
+        f"| IC > 0 的月份比例 | {pct(summary['ic_positive_ratio'])} | {pct(summary['ic_raw_positive_ratio'])} |",
+        f"| abs(IC) > {IC_STRONG_THRESHOLD} 的月份比例 | {pct(summary['ic_strong_ratio'])} | {pct(summary['ic_raw_strong_ratio'])} |",
         f"| 平均样本数 | {summary['n_mean']:,.0f} | {summary['n_mean']:,.0f} |",
         "",
         f"中性化 IC 均值为 {num(summary['ic_mean'])}，方向为{direction}，独立同方差检验下",
@@ -291,12 +297,12 @@ def save_report(
         "",
         "## 3. 分年度结果",
         "",
-        "| 年份 | 月数 | IC 均值 | IC 标准差 | IR | IC > 0 比例 | abs(IC) > 0.02 比例 | 平均样本数 |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| 年份 | 月数 | 中性化 IC 均值 | 原始 IC 均值 | IC 标准差 | IR | IC > 0 比例 | abs(IC) > 0.02 比例 | 平均样本数 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in annual.itertuples(index=False):
         lines.append(
-            f"| {row.period} | {row.months} | {num(row.ic_mean)} | {num(row.ic_std)} | "
+            f"| {row.period} | {row.months} | {num(row.ic_mean)} | {num(row.ic_raw_mean)} | {num(row.ic_std)} | "
             f"{num(row.ir)} | {pct(row.ic_positive_ratio)} | {pct(row.ic_strong_ratio)} | "
             f"{row.n_mean:,.0f} |"
         )
