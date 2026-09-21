@@ -4,7 +4,7 @@
 三类回归（OLS / RLM / WLS）必须使用完全相同的样本构造规则，否则系数差异
 里会混入口径差异。因此样本构造全部放在这里，回归脚本只负责估计方法。
 
-规模控制变量统一在「EP 有效且总市值有效」的形成日universe内做横截面
+规模控制变量统一在「因子有效且总市值有效」的形成日 universe 内做横截面
 Z 标准化，不使用外部规模因子文件，保证 OLS 与 RLM 的设计矩阵一致。
 """
 from __future__ import annotations
@@ -17,24 +17,29 @@ from .market import apply_security_id, extract_code6
 
 def prepare_formation_panel(
     market: pd.DataFrame,
-    ep: pd.DataFrame,
+    factor: pd.DataFrame,
     signal_dates: set[pd.Timestamp],
     mapping: dict[str, str],
 ) -> pd.DataFrame:
+    """把任意因子的信号列并到形成日行情面板上，并计算规模控制变量。
+
+    ``factor`` 需要包含 ``date``、``stock_code``、``signal`` 三列，
+    与 ``因子结果/*.parquet`` 的交付格式一致。
+    """
     formation = market.loc[market["date"].isin(signal_dates)].copy()
     formation = apply_security_id(formation, mapping)
     if formation.duplicated(["date", "security_id"]).any():
         raise ValueError("形成日行情面板在代码归并后不唯一")
 
-    factor = ep.copy()
-    factor["code6"] = extract_code6(factor["stock_code"])
-    factor["ep_z"] = pd.to_numeric(factor["signal"], errors="coerce")
-    factor = factor[["date", "code6", "ep_z"]]
-    if factor.duplicated(["date", "code6"]).any():
-        raise ValueError("EP 因子在 date + code6 上不唯一")
+    signal = factor.copy()
+    signal["code6"] = extract_code6(signal["stock_code"])
+    signal["factor_z"] = pd.to_numeric(signal["signal"], errors="coerce")
+    signal = signal[["date", "code6", "factor_z"]]
+    if signal.duplicated(["date", "code6"]).any():
+        raise ValueError("因子数据在 date + code6 上不唯一")
 
     formation = formation.merge(
-        factor,
+        signal,
         on=["date", "code6"],
         how="left",
         validate="one_to_one",
@@ -42,7 +47,7 @@ def prepare_formation_panel(
     )
     if not formation["factor_join"].eq("both").all():
         missing = int(formation["factor_join"].ne("both").sum())
-        raise ValueError(f"形成日行情有 {missing} 行在 EP 输出中找不到对应因子")
+        raise ValueError(f"形成日行情有 {missing} 行在因子文件中找不到对应记录")
     formation = formation.drop(columns="factor_join")
 
     formation["log_mv"] = np.where(
@@ -52,7 +57,7 @@ def prepare_formation_panel(
     )
     formation["size_z"] = np.nan
     for _, group in formation.groupby("date", sort=False):
-        valid = np.isfinite(group["ep_z"]) & np.isfinite(group["log_mv"])
+        valid = np.isfinite(group["factor_z"]) & np.isfinite(group["log_mv"])
         values = group.loc[valid, "log_mv"]
         std = float(values.std(ddof=0))
         if len(values) and std > 0:
@@ -94,14 +99,14 @@ def build_regression_panel(
         how="left",
         validate="one_to_one",
     )
-    panel["ep_valid"] = np.isfinite(panel["ep_z"])
+    panel["factor_valid"] = np.isfinite(panel["factor_z"])
     panel["size_valid"] = np.isfinite(panel["size_z"])
     panel["industry_valid"] = panel["industry_lv1"].notna()
     panel["return_valid"] = panel["return_available"].fillna(False) & np.isfinite(
         panel["forward_return"]
     )
     panel["regression_eligible"] = (
-        panel["ep_valid"]
+        panel["factor_valid"]
         & panel["size_valid"]
         & panel["industry_valid"]
         & panel["return_valid"]
@@ -111,8 +116,8 @@ def build_regression_panel(
 
     rows = []
     for formation_date, group in panel.groupby("formation_date", sort=True):
-        after_ep = group["ep_valid"]
-        after_size = after_ep & group["size_valid"]
+        after_factor = group["factor_valid"]
+        after_size = after_factor & group["size_valid"]
         after_industry = after_size & group["industry_valid"]
         after_return = after_industry & group["return_valid"]
         eligible_before_return = group.loc[after_industry]
@@ -120,9 +125,9 @@ def build_regression_panel(
             {
                 "formation_date": formation_date,
                 "n_formation_market": len(group),
-                "n_valid_ep": int(after_ep.sum()),
-                "n_valid_ep_size": int(after_size.sum()),
-                "n_valid_ep_size_industry": int(after_industry.sum()),
+                "n_valid_factor": int(after_factor.sum()),
+                "n_valid_factor_size": int(after_size.sum()),
+                "n_valid_factor_size_industry": int(after_industry.sum()),
                 "n_valid_return_after_controls": int(after_return.sum()),
                 "n_final": int(group["regression_eligible"].sum()),
                 "n_missing_entry_row": int(

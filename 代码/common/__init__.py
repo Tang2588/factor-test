@@ -46,6 +46,7 @@ from .paths import (
     REG_DIR,
     TEST_START_PATH,
     TOL,
+    resolve_factor_path,
 )
 from .returns import build_endpoint_forward_returns
 
@@ -75,5 +76,6 @@ __all__ = [
     "prepare_market_snapshot",
     "read_all_dates",
     "read_selected_dates",
+    "resolve_factor_path",
     "scan_market_index",
 ]

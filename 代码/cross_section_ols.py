@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
-"""EP 因子月度横截面 OLS 回归（与 RLM 同口径对照）。
+"""通用月度横截面 OLS 回归（RLM 的同口径对照）。
 
-本脚本与 ``monthly_rlm_ep.py`` 共用 ``common`` 共享模块，因此样本、前瞻收益、
-控制变量、行业哑变量和月度日历完全一致，两者结果差异只来自估计方法：
+与 ``cross_section_rlm.py`` 共用 ``代码/common``，样本、前瞻收益、控制变量、
+行业哑变量和月度日历完全一致，两者结果差异只来自估计方法：
 
 - OLS：最小二乘估计，经典同方差标准误；
 - RLM：Huber 稳健回归，H1 稳健协方差。
 
-2026-09-21 口径变更：旧版脚本使用「每月第一个交易日调仓 + 日收益复合」的
-独立口径，与 RLM 不可比，已由本版取代。旧输出见
-``回归结果/_历史口径存档/OLS_日复合收益``。
+    python "代码\\cross_section_ols.py"
+    python "代码\\cross_section_ols.py" --factor pb --factor-name PB
+
+2026-09-21 口径变更：旧版「每月第一个交易日调仓 + 日收益复合」的独立口径输出
+已归档到 ``回归结果/_历史口径存档/OLS_日复合收益/``，不再使用。
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from datetime import datetime
@@ -40,15 +43,16 @@ from common import (  # noqa: E402
     prepare_industry,
     prepare_market_snapshot,
     read_selected_dates,
+    resolve_factor_path,
     scan_market_index,
 )
-from common.paths import EP_PATH  # noqa: E402
 
-OUT_DIR = REG_DIR / "OLS_月度"
+MODEL_DIR_NAME = "OLS_月度"
 
 
 def fit_monthly_ols(
     panel: pd.DataFrame,
+    min_observations: int = MIN_OBSERVATIONS,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     monthly_rows = []
     coefficient_rows = []
@@ -66,7 +70,7 @@ def fit_monthly_ols(
         design = pd.concat(
             [
                 pd.Series(1.0, index=data.index, name="const"),
-                data["ep_z"].astype(float).rename("ep_z"),
+                data["factor_z"].astype(float).rename("factor_z"),
                 data["size_z"].astype(float).rename("size_z"),
                 dummies,
             ],
@@ -74,7 +78,7 @@ def fit_monthly_ols(
         )
         y = data["forward_return"].astype(float)
         n, p = design.shape
-        required_n = max(MIN_OBSERVATIONS, 10 * p)
+        required_n = max(min_observations, 10 * p)
         if n < required_n:
             raise ValueError(
                 f"{formation_date.date()}: 观测数 {n} 低于要求的 {required_n}"
@@ -111,10 +115,10 @@ def fit_monthly_ols(
                 "dof": dof,
                 "industries": len(industries),
                 "reference_industry": industries[0],
-                "ep_beta": float(params["ep_z"]),
-                "ep_se": float(bse["ep_z"]),
-                "ep_t": float(tvalues["ep_z"]),
-                "ep_p": float(pvalues["ep_z"]),
+                "factor_beta": float(params["factor_z"]),
+                "factor_se": float(bse["factor_z"]),
+                "factor_t": float(tvalues["factor_z"]),
+                "factor_p": float(pvalues["factor_z"]),
                 "size_beta": float(params["size_z"]),
                 "size_se": float(bse["size_z"]),
                 "size_t": float(tvalues["size_z"]),
@@ -152,7 +156,7 @@ def fit_monthly_ols(
                 "code_at_formation",
                 "code_at_entry",
                 "code_at_exit",
-                "ep_z",
+                "factor_z",
                 "size_z",
                 "industry_lv1",
                 "forward_return",
@@ -162,7 +166,7 @@ def fit_monthly_ols(
         sample_rows.append(regression_sample)
         print(
             f"OLS {formation_date.date()} n={n:,} "
-            f"beta={params['ep_z']:.8f} t={tvalues['ep_z']:.3f} r2={r2:.4f}",
+            f"beta={params['factor_z']:.8f} t={tvalues['factor_z']:.3f} r2={r2:.4f}",
             flush=True,
         )
 
@@ -195,19 +199,19 @@ def iid_mean(values: pd.Series) -> dict[str, float]:
 
 
 def summarize_period(group: pd.DataFrame, label: str) -> dict[str, float | str | int]:
-    ep_iid = iid_mean(group["ep_beta"])
+    factor_iid = iid_mean(group["factor_beta"])
     size_iid = iid_mean(group["size_beta"])
     return {
         "period": label,
         "months": len(group),
-        "ep_mean": ep_iid["mean"],
-        "ep_median": float(group["ep_beta"].median()),
-        "ep_std": float(group["ep_beta"].std(ddof=1)),
-        "ep_iid_se": ep_iid["iid_se"],
-        "ep_iid_t": ep_iid["iid_t"],
-        "ep_iid_p": ep_iid["iid_p"],
-        "ep_positive_ratio": float(group["ep_beta"].gt(0).mean()),
-        "ep_cross_sectional_significant_ratio": float(group["ep_p"].lt(0.05).mean()),
+        "factor_mean": factor_iid["mean"],
+        "factor_median": float(group["factor_beta"].median()),
+        "factor_std": float(group["factor_beta"].std(ddof=1)),
+        "factor_iid_se": factor_iid["iid_se"],
+        "factor_iid_t": factor_iid["iid_t"],
+        "factor_iid_p": factor_iid["iid_p"],
+        "factor_positive_ratio": float(group["factor_beta"].gt(0).mean()),
+        "factor_cross_sectional_significant_ratio": float(group["factor_p"].lt(0.05).mean()),
         "size_mean": size_iid["mean"],
         "size_iid_t": size_iid["iid_t"],
         "size_iid_p": size_iid["iid_p"],
@@ -227,22 +231,24 @@ def build_summaries(monthly: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return annual, overall
 
 
-def save_plot(monthly: pd.DataFrame, path: Path) -> None:
+def save_plot(monthly: pd.DataFrame, path: Path, factor_label: str) -> None:
     plt.rcParams["axes.unicode_minus"] = False
     figure, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     axes[0].axhline(0.0, color="#555555", linewidth=0.9)
-    axes[0].plot(monthly["formation_date"], monthly["ep_beta"] * 100, color="#2E7D5B", linewidth=1.2)
-    axes[0].scatter(
-        monthly["formation_date"], monthly["ep_beta"] * 100, color="#2E7D5B", s=13
+    axes[0].plot(
+        monthly["formation_date"], monthly["factor_beta"] * 100, color="#2E7D5B", linewidth=1.2
     )
-    axes[0].set_ylabel("EP premium (%)")
-    axes[0].set_title("Monthly OLS EP premium (same universe as RLM)")
+    axes[0].scatter(
+        monthly["formation_date"], monthly["factor_beta"] * 100, color="#2E7D5B", s=13
+    )
+    axes[0].set_ylabel(f"{factor_label} premium (%)")
+    axes[0].set_title(f"Monthly OLS {factor_label} premium (same universe as RLM)")
     axes[0].grid(axis="y", alpha=0.25)
 
     axes[1].axhline(0.0, color="#555555", linewidth=0.9)
     axes[1].plot(
         monthly["formation_date"],
-        monthly["cumulative_ep_premium"] * 100,
+        monthly["cumulative_factor_premium"] * 100,
         color="#8A5A2B",
         linewidth=1.5,
     )
@@ -269,32 +275,36 @@ def save_report(
     sample_audit: pd.DataFrame,
     mapping: pd.DataFrame,
     calendar: pd.DataFrame,
+    factor_label: str,
+    factor_path: Path,
     path: Path,
 ) -> None:
     summary = overall.iloc[0]
-    strongest = monthly.nlargest(3, "ep_beta")
-    weakest = monthly.nsmallest(3, "ep_beta")
-    ep_significant = int((monthly["ep_p"] < 0.05).sum())
-    ep_positive_significant = int(((monthly["ep_p"] < 0.05) & monthly["ep_beta"].gt(0)).sum())
-    ep_negative_significant = int(((monthly["ep_p"] < 0.05) & monthly["ep_beta"].lt(0)).sum())
+    strongest = monthly.nlargest(3, "factor_beta")
+    weakest = monthly.nsmallest(3, "factor_beta")
+    significant = int((monthly["factor_p"] < 0.05).sum())
+    positive_significant = int(((monthly["factor_p"] < 0.05) & monthly["factor_beta"].gt(0)).sum())
+    negative_significant = int(((monthly["factor_p"] < 0.05) & monthly["factor_beta"].lt(0)).sum())
     size_significant = int((monthly["size_p"] < 0.05).sum())
 
     lines = [
-        "# EP 月度横截面 OLS 统计结果",
+        f"# {factor_label} 因子月度横截面 OLS 统计结果",
         "",
         f"**运行时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**",
         "",
+        f"**因子数据：** `{factor_path}`",
+        "",
         "> 本报告为 RLM 的同口径对照：样本、前瞻收益、控制变量、行业哑变量和",
-        "> 月度日历与 `monthly_rlm_ep.py` 完全一致，差异只来自估计方法。",
+        "> 月度日历与 `cross_section_rlm.py` 完全一致，差异只来自估计方法。",
         "> 不含 IC、分层回测或 WLS。",
         "",
         "## 1. 回归口径",
         "",
-        "每月最后一个交易日形成标准化 EP，次月第一个交易日按复权收盘价建仓，",
+        "每月最后一个交易日形成标准化因子，次月第一个交易日按复权收盘价建仓，",
         "再下一个月第一个交易日按复权收盘价退出。模型为：",
         "",
         "```text",
-        "r_fwd[i,m+1] = alpha[m] + beta_EP[m] * EP_Z[i,m]",
+        "r_fwd[i,m+1] = alpha[m] + beta_F[m] * F_Z[i,m]",
         "                 + beta_Size[m] * Size_Z[i,m]",
         "                 + K-1 个申万一级行业哑变量 + epsilon[i,m+1]",
         "```",
@@ -314,14 +324,14 @@ def save_report(
         "| 指标 | 结果 |",
         "|---|---:|",
         f"| 回归月份 | {int(summary['months'])} |",
-        f"| EP 月均系数 | {pct(summary['ep_mean'], 4)} |",
-        f"| EP 系数中位数 | {pct(summary['ep_median'], 4)} |",
-        f"| EP 系数标准差 | {pct(summary['ep_std'], 4)} |",
-        f"| EP IID 标准误 | {pct(summary['ep_iid_se'], 4)} |",
-        f"| EP IID t 值 | {num(summary['ep_iid_t'])} |",
-        f"| EP IID p 值 | {num(summary['ep_iid_p'])} |",
-        f"| EP 系数为正的月份 | {pct(summary['ep_positive_ratio'])} |",
-        f"| 单月截面显著的月份 | {ep_significant}/{len(monthly)}（正向 {ep_positive_significant}，负向 {ep_negative_significant}） |",
+        f"| 因子月均系数 | {pct(summary['factor_mean'], 4)} |",
+        f"| 因子系数中位数 | {pct(summary['factor_median'], 4)} |",
+        f"| 因子系数标准差 | {pct(summary['factor_std'], 4)} |",
+        f"| 因子 IID 标准误 | {pct(summary['factor_iid_se'], 4)} |",
+        f"| 因子 IID t 值 | {num(summary['factor_iid_t'])} |",
+        f"| 因子 IID p 值 | {num(summary['factor_iid_p'])} |",
+        f"| 因子系数为正的月份 | {pct(summary['factor_positive_ratio'])} |",
+        f"| 单月截面显著的月份 | {significant}/{len(monthly)}（正向 {positive_significant}，负向 {negative_significant}） |",
         f"| Size 月均系数 | {pct(summary['size_mean'], 4)} |",
         f"| Size IID t 值 | {num(summary['size_iid_t'])} |",
         f"| Size 单月截面显著月份 | {size_significant}/{len(monthly)} |",
@@ -329,13 +339,13 @@ def save_report(
         "",
         "## 4. 分年度结果",
         "",
-        "| 年份 | 月数 | EP 月均系数 | IID t 值 | IID p 值 | 正系数比例 | 平均 R² | 平均样本数 |",
+        "| 年份 | 月数 | 因子月均系数 | IID t 值 | IID p 值 | 正系数比例 | 平均 R² | 平均样本数 |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in annual.itertuples(index=False):
         lines.append(
-            f"| {row.period} | {row.months} | {pct(row.ep_mean, 4)} | "
-            f"{num(row.ep_iid_t)} | {num(row.ep_iid_p)} | {pct(row.ep_positive_ratio)} | "
+            f"| {row.period} | {row.months} | {pct(row.factor_mean, 4)} | "
+            f"{num(row.factor_iid_t)} | {num(row.factor_iid_p)} | {pct(row.factor_positive_ratio)} | "
             f"{pct(row.r2_mean)} | {row.n_mean:,.0f} |"
         )
 
@@ -343,14 +353,14 @@ def save_report(
         "",
         "## 5. 极值月份",
         "",
-        "| 类型 | 因子形成日 | 建仓日 | 退出日 | EP 系数 | 截面 t 值 | 样本数 |",
+        "| 类型 | 因子形成日 | 建仓日 | 退出日 | 因子系数 | 截面 t 值 | 样本数 |",
         "|---|---|---|---|---:|---:|---:|",
     ]
     for label, selected in [("最高", strongest), ("最低", weakest)]:
         for row in selected.itertuples(index=False):
             lines.append(
                 f"| {label} | {row.formation_date.date()} | {row.entry_date.date()} | "
-                f"{row.exit_date.date()} | {pct(row.ep_beta, 4)} | {row.ep_t:.3f} | {row.n:,} |"
+                f"{row.exit_date.date()} | {pct(row.factor_beta, 4)} | {row.factor_t:.3f} | {row.n:,} |"
             )
 
     lines += [
@@ -361,11 +371,11 @@ def save_report(
         f"- 平均调整 R²：{pct(float(monthly['adjusted_r2'].mean()))}。",
         "- 涨停买入和跌停卖出只做数量标记，未用于样本筛选。",
         "",
-        "![OLS 月度 EP 系数与累计因子溢价](./ols_ep_premium.png)",
+        "![OLS 月度因子系数与累计因子溢价](./ols_factor_premium.png)",
         "",
         "## 7. 输出文件",
         "",
-        "- `ols_monthly_results.csv/.parquet`：逐月 EP/Size 系数及拟合诊断。",
+        "- `ols_monthly_results.csv/.parquet`：逐月因子/Size 系数及拟合诊断。",
         "- `ols_coefficients_long.parquet`：全部月份、全部回归参数。",
         "- `ols_regression_sample.parquet`：进入回归的逐股样本与残差。",
         "- `ols_annual_summary.csv`、`ols_overall_summary.csv`：年度和全期汇总。",
@@ -374,12 +384,56 @@ def save_report(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="通用月度横截面 OLS 回归：读取因子数据并输出回归统计结果。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "示例：\n"
+            '  python "代码\\cross_section_ols.py"\n'
+            '  python "代码\\cross_section_ols.py" --factor pb --factor-name PB\n'
+        ),
+    )
+    parser.add_argument(
+        "--factor",
+        default="ep",
+        help="因子名或因子文件路径。因子名会解析为 因子结果/<名称>.parquet（默认 ep）",
+    )
+    parser.add_argument(
+        "--factor-name",
+        default=None,
+        help="输出目录与报告使用的因子标签，默认取因子文件名",
+    )
+    parser.add_argument(
+        "--out-root",
+        default=None,
+        help="结果根目录，默认 回归结果/",
+    )
+    parser.add_argument(
+        "--min-observations",
+        type=int,
+        default=MIN_OBSERVATIONS,
+        help=f"单月最小观测数（默认 {MIN_OBSERVATIONS}）",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    factor_path = resolve_factor_path(args.factor)
+    if not factor_path.exists():
+        raise FileNotFoundError(f"找不到因子文件：{factor_path}")
+    factor_label = (args.factor_name or factor_path.stem).upper()
+    out_root = Path(args.out_root) if args.out_root else REG_DIR
+    out_dir = out_root / factor_path.stem / MODEL_DIR_NAME
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     with TEST_START_PATH.open(encoding="utf-8") as file:
         test_config = json.load(file)
     test_start = pd.Timestamp(test_config["formal_test_start_date"])
 
+    print(f"Factor: {factor_label} ({factor_path})", flush=True)
+    print(f"Output: {out_dir}", flush=True)
     print("Scanning market index (calendar + BSE code switch)...", flush=True)
     index = scan_market_index(MARKET_PATH)
     transition_old_date = index.old_bse_last_date
@@ -427,14 +481,14 @@ def main() -> None:
     )
     mapping = dict(zip(mapping_frame["old_code"], mapping_frame["new_code"]))
 
-    print("Reading monthly EP and industry cross-sections...", flush=True)
-    ep = read_selected_dates(EP_PATH, ["date", "stock_code", "signal"], signal_dates)
+    print("Reading monthly factor and industry cross-sections...", flush=True)
+    factor = read_selected_dates(factor_path, ["date", "stock_code", "signal"], signal_dates)
     industry_raw = read_selected_dates(
         INDUSTRY_PATH,
         ["date", "stock_code", "indus_name_lv1"],
         signal_dates,
     )
-    formation = prepare_formation_panel(market, ep, signal_dates, mapping)
+    formation = prepare_formation_panel(market, factor, signal_dates, mapping)
     industry = prepare_industry(industry_raw, mapping)
 
     print("Building fixed-endpoint adjusted forward returns...", flush=True)
@@ -444,27 +498,33 @@ def main() -> None:
     panel, sample_audit = build_regression_panel(formation, industry, forward_returns)
 
     print("Running monthly OLS...", flush=True)
-    monthly, coefficients, regression_sample = fit_monthly_ols(panel)
+    monthly, coefficients, regression_sample = fit_monthly_ols(
+        panel, min_observations=args.min_observations
+    )
     monthly["formation_date"] = pd.to_datetime(monthly["formation_date"])
     monthly = monthly.sort_values("formation_date").reset_index(drop=True)
-    monthly["cumulative_ep_premium"] = monthly["ep_beta"].cumsum()
+    monthly["cumulative_factor_premium"] = monthly["factor_beta"].cumsum()
     annual, overall = build_summaries(monthly)
 
-    monthly.to_parquet(OUT_DIR / "ols_monthly_results.parquet", index=False)
-    monthly.to_csv(OUT_DIR / "ols_monthly_results.csv", index=False, encoding="utf-8-sig")
-    coefficients.to_parquet(OUT_DIR / "ols_coefficients_long.parquet", index=False)
-    regression_sample.to_parquet(OUT_DIR / "ols_regression_sample.parquet", index=False)
-    annual.to_csv(OUT_DIR / "ols_annual_summary.csv", index=False, encoding="utf-8-sig")
-    overall.to_csv(OUT_DIR / "ols_overall_summary.csv", index=False, encoding="utf-8-sig")
-    calendar.to_csv(OUT_DIR / "ols_calendar.csv", index=False, encoding="utf-8-sig")
-    sample_audit.to_csv(OUT_DIR / "ols_sample_audit.csv", index=False, encoding="utf-8-sig")
+    monthly.to_parquet(out_dir / "ols_monthly_results.parquet", index=False)
+    monthly.to_csv(out_dir / "ols_monthly_results.csv", index=False, encoding="utf-8-sig")
+    coefficients.to_parquet(out_dir / "ols_coefficients_long.parquet", index=False)
+    regression_sample.to_parquet(out_dir / "ols_regression_sample.parquet", index=False)
+    annual.to_csv(out_dir / "ols_annual_summary.csv", index=False, encoding="utf-8-sig")
+    overall.to_csv(out_dir / "ols_overall_summary.csv", index=False, encoding="utf-8-sig")
+    calendar.to_csv(out_dir / "ols_calendar.csv", index=False, encoding="utf-8-sig")
+    sample_audit.to_csv(out_dir / "ols_sample_audit.csv", index=False, encoding="utf-8-sig")
 
     config = {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "estimator": "OLS with classical (homoskedastic) standard errors",
-        "comparison_design": "identical to RLM_H1_独立同方差 (shared common module)",
+        "comparison_design": f"identical to {MODEL_DIR_NAME} of cross_section_rlm.py (shared common module)",
+        "factor": {
+            "label": factor_label,
+            "name": factor_path.stem,
+            "path": str(factor_path),
+        },
         "inputs": {
-            "ep": str(EP_PATH),
             "market": str(MARKET_PATH),
             "industry": str(INDUSTRY_PATH),
             "test_start": str(TEST_START_PATH),
@@ -475,9 +535,9 @@ def main() -> None:
             "exit": "following month's first market trading day close_adj",
             "suspended_endpoint": "forward return set to NaN",
         },
-        "size_control": "cross-sectional Z-score of ln(me_total) within valid EP formation universe",
+        "size_control": "cross-sectional Z-score of ln(me_total) within valid factor formation universe",
         "industry_control": "intercept plus K-1 Shenwan level-1 dummies",
-        "min_observations": MIN_OBSERVATIONS,
+        "min_observations": args.min_observations,
         "time_series_inference": {
             "method": "IID mean t-test",
             "newey_west_hac_applied": False,
@@ -492,10 +552,10 @@ def main() -> None:
             "detected_from_data": True,
         },
     }
-    (OUT_DIR / "ols_config.json").write_text(
+    (out_dir / "ols_config.json").write_text(
         json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    save_plot(monthly, OUT_DIR / "ols_ep_premium.png")
+    save_plot(monthly, out_dir / "ols_factor_premium.png", factor_label)
     save_report(
         monthly,
         annual,
@@ -503,16 +563,19 @@ def main() -> None:
         sample_audit,
         mapping_frame,
         calendar,
-        OUT_DIR / "OLS统计结果.md",
+        factor_label,
+        factor_path,
+        out_dir / "OLS统计结果.md",
     )
 
     row = overall.iloc[0]
     print("OLS completed", flush=True)
+    print(f"factor={factor_label}", flush=True)
     print(f"months={len(monthly)}", flush=True)
-    print(f"ep_mean={row['ep_mean']:.10f}", flush=True)
-    print(f"ep_iid_t={row['ep_iid_t']:.6f}", flush=True)
-    print(f"ep_iid_p={row['ep_iid_p']:.6f}", flush=True)
-    print(f"saved={OUT_DIR}", flush=True)
+    print(f"factor_mean={row['factor_mean']:.10f}", flush=True)
+    print(f"factor_iid_t={row['factor_iid_t']:.6f}", flush=True)
+    print(f"factor_iid_p={row['factor_iid_p']:.6f}", flush=True)
+    print(f"saved={out_dir}", flush=True)
 
 
 if __name__ == "__main__":

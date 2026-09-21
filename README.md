@@ -24,8 +24,10 @@ python "代码\step3_TTM计算.py"
 python "代码\step4_点时间对齐_计算PE.py"
 python "代码\step5_MAD去极值_Z标准化.py"
 
-# 横截面回归（实测 26.8 秒）
-python "代码\monthly_rlm_ep.py"
+# 横截面回归：读取因子数据并输出回归统计结果（实测约 23 秒）
+python "代码\cross_section_rlm.py"                       # 默认因子 ep
+python "代码\cross_section_rlm.py" --factor pb            # 换成其它因子
+python "代码\cross_section_rlm.py" --factor "D:/其它路径/my.parquet"   # 任意路径
 
 # 交付验收
 python "代码\factor_verify.py"
@@ -38,13 +40,18 @@ python "代码\factor_verify.py"
 | 共享底层 | `代码/common/` | 分片读取 parquet、行情快照清洗、B 股剔除、北交所新旧代码映射、月度日历、前瞻收益、回归面板 |
 | 数据清洗 | `代码/step1`–`step4` | 样本筛选、利润表点时间版本、TTM 归母净利润、点时间对齐与原始 EP/PE |
 | 因子计算 | `代码/step5_MAD去极值_Z标准化.py` | 逐日横截面 MAD 去极值与 Z 标准化 |
-| 回归分析 | `代码/monthly_rlm_ep.py`、`代码/monthly_ols_ep_size.py` | 月度横截面 Huber RLM 与同口径 OLS |
+| 回归分析 | `代码/cross_section_rlm.py`、`代码/cross_section_ols.py` | 通用月度横截面 Huber RLM 与同口径 OLS，读取任意因子文件 |
 | 分析与绘图 | `代码/plot_*`、`代码/analyze_mad_standardization.py` | 描述性统计、分布图、行业图 |
 | 验收 | `代码/factor_verify.py`、`代码/EP因子交付验证.py` | 独立一致性检查 |
 
-回归脚本只负责估计方法和结果呈现，样本构造全部调用 `代码/common/`，因此
-RLM 与 OLS 使用完全相同的样本、前瞻收益、控制变量和月度日历，结果差异只来自
-估计方法。
+回归脚本与具体因子无关：给定一份因子文件就输出对应的回归统计结果，换因子只换
+参数、不改代码。样本构造全部调用 `代码/common/`，因此 RLM 与 OLS 使用完全相同的
+样本、前瞻收益、控制变量和月度日历，结果差异只来自估计方法。
+
+```powershell
+python "代码\cross_section_rlm.py" --factor ep    # → 回归结果/ep/RLM_H1_独立同方差/
+python "代码\cross_section_rlm.py" --factor pb    # → 回归结果/pb/RLM_H1_独立同方差/
+```
 
 ## 目录说明
 
@@ -56,7 +63,7 @@ RLM 与 OLS 使用完全相同的样本、前瞻收益、控制变量和月度�
 | `中间结果/` | 原始 EP/PE、财务版本、点时间审计、处理过程数据 | 否 |
 | `因子结果/` | 最终标准化 EP、PE 因子 | 否 |
 | `标准化统计/` | MAD、Z 标准化统计表与图形 | 否 |
-| `回归结果/` | RLM 与 OLS 回归输出，含 `_历史口径存档/` | 否 |
+| `回归结果/` | 按因子分目录：`回归结果/<因子名>/RLM_H1_独立同方差/`、`回归结果/<因子名>/OLS_月度/`，另含 `_历史口径存档/` | 否 |
 | `图形/` | 文档使用的公共图形 | 否 |
 
 ## 主要文档

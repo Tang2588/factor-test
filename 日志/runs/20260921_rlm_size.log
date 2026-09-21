@@ -1,0 +1,84 @@
+Factor: SIZE (D:\因子计算\规模因子_交付版\因子结果\size.parquet)
+Output: D:\因子计算\市盈率\EP因子_交付版\回归结果\size\RLM_H1_独立同方差
+Scanning market index (calendar + BSE code switch)...
+  trading days=1,455; BSE switch 2025-09-30 -> 2025-10-09 (242 conversions)
+Reading 129 selected market dates...
+Deriving and validating BSE code mapping...
+Reading monthly factor and industry cross-sections...
+Building fixed-endpoint adjusted forward returns...
+Building monthly regression samples...
+Running monthly Huber RLM...
+RLM 2020-07-31 n=3,908 beta=-0.04499577 z=-3.305 iterations=16 converged=True
+RLM 2020-08-31 n=3,970 beta=-0.03487946 z=-3.708 iterations=18 converged=True
+RLM 2020-09-30 n=4,038 beta=-0.04603416 z=-4.207 iterations=13 converged=True
+RLM 2020-10-30 n=4,065 beta=0.00193945 z=0.188 iterations=14 converged=True
+RLM 2020-11-30 n=4,094 beta=0.03050387 z=2.870 iterations=20 converged=True
+RLM 2020-12-31 n=4,147 beta=0.01565098 z=1.320 iterations=13 converged=True
+RLM 2021-01-29 n=4,181 beta=-0.03255607 z=-3.753 iterations=13 converged=True
+RLM 2021-02-26 n=4,216 beta=-0.02018884 z=-2.088 iterations=13 converged=True
+RLM 2021-03-31 n=4,248 beta=0.00880967 z=0.826 iterations=16 converged=True
+RLM 2021-04-30 n=4,276 beta=-0.01700819 z=-1.900 iterations=15 converged=True
+RLM 2021-05-31 n=4,352 beta=-0.02465784 z=-2.458 iterations=15 converged=True
+RLM 2021-06-30 n=4,400 beta=0.02641754 z=1.862 iterations=16 converged=True
+RLM 2021-07-30 n=4,456 beta=0.01294639 z=0.978 iterations=14 converged=True
+RLM 2021-08-31 n=4,503 beta=-0.04859649 z=-4.006 iterations=17 converged=True
+RLM 2021-09-30 n=4,540 beta=0.02640748 z=2.438 iterations=15 converged=True
+RLM 2021-10-29 n=4,576 beta=-0.03350155 z=-2.845 iterations=15 converged=True
+RLM 2021-11-30 n=4,617 beta=-0.03451591 z=-2.579 iterations=14 converged=True
+RLM 2021-12-31 n=4,657 beta=-0.04022759 z=-3.945 iterations=16 converged=True
+RLM 2022-01-28 n=4,696 beta=-0.00517887 z=-0.641 iterations=14 converged=True
+RLM 2022-02-28 n=4,711 beta=-0.04811129 z=-4.588 iterations=16 converged=True
+RLM 2022-03-31 n=4,666 beta=0.00225542 z=0.224 iterations=17 converged=True
+RLM 2022-04-29 n=4,689 beta=0.00472624 z=0.579 iterations=12 converged=True
+RLM 2022-05-31 n=4,758 beta=0.02686664 z=2.724 iterations=17 converged=True
+RLM 2022-06-30 n=4,791 beta=-0.02306010 z=-2.226 iterations=17 converged=True
+RLM 2022-07-29 n=4,830 beta=-0.02898250 z=-2.957 iterations=12 converged=True
+RLM 2022-08-31 n=4,885 beta=-0.02938053 z=-4.045 iterations=14 converged=True
+RLM 2022-09-30 n=4,928 beta=0.02504139 z=2.594 iterations=12 converged=True
+RLM 2022-10-31 n=4,963 beta=-0.02027794 z=-2.249 iterations=16 converged=True
+RLM 2022-11-30 n=4,998 beta=-0.01250933 z=-2.003 iterations=17 converged=True
+RLM 2022-12-30 n=5,049 beta=-0.01298975 z=-1.997 iterations=19 converged=True
+RLM 2023-01-31 n=5,054 beta=-0.00123252 z=-0.170 iterations=14 converged=True
+RLM 2023-02-28 n=5,087 beta=-0.00573999 z=-0.747 iterations=15 converged=True
+RLM 2023-03-31 n=5,052 beta=-0.03938362 z=-3.880 iterations=23 converged=True
+RLM 2023-04-28 n=5,069 beta=-0.02859124 z=-4.018 iterations=14 converged=True
+RLM 2023-05-31 n=5,144 beta=-0.01224325 z=-1.756 iterations=18 converged=True
+RLM 2023-06-30 n=5,183 beta=-0.01910635 z=-2.588 iterations=12 converged=True
+RLM 2023-07-31 n=5,228 beta=-0.04587646 z=-7.463 iterations=12 converged=True
+RLM 2023-08-31 n=5,258 beta=-0.01037229 z=-2.218 iterations=15 converged=True
+RLM 2023-09-28 n=5,278 beta=-0.02250682 z=-3.809 iterations=14 converged=True
+RLM 2023-10-31 n=5,295 beta=-0.05100398 z=-9.165 iterations=21 converged=True
+RLM 2023-11-30 n=5,304 beta=-0.05234414 z=-9.403 iterations=14 converged=True
+RLM 2023-12-29 n=5,324 beta=0.02683632 z=4.607 iterations=13 converged=True
+RLM 2024-01-31 n=5,338 beta=0.09443370 z=15.385 iterations=13 converged=True
+RLM 2024-02-29 n=5,343 beta=-0.05545517 z=-6.795 iterations=16 converged=True
+RLM 2024-03-29 n=5,332 beta=0.04381823 z=5.837 iterations=13 converged=True
+RLM 2024-04-30 n=5,285 beta=0.00033978 z=0.056 iterations=13 converged=True
+RLM 2024-05-31 n=5,322 beta=-0.03235597 z=-5.168 iterations=12 converged=True
+RLM 2024-06-28 n=5,320 beta=-0.04296266 z=-6.377 iterations=14 converged=True
+RLM 2024-07-31 n=5,321 beta=-0.04647928 z=-7.069 iterations=13 converged=True
+RLM 2024-08-30 n=5,324 beta=-0.00186392 z=-0.157 iterations=16 converged=True
+RLM 2024-09-30 n=5,325 beta=-0.03566838 z=-4.076 iterations=14 converged=True
+RLM 2024-10-31 n=5,333 beta=-0.06591065 z=-7.450 iterations=18 converged=True
+RLM 2024-11-29 n=5,348 beta=0.00585425 z=0.794 iterations=17 converged=True
+RLM 2024-12-31 n=5,355 beta=-0.00546635 z=-0.933 iterations=16 converged=True
+RLM 2025-01-27 n=5,368 beta=-0.02933827 z=-3.797 iterations=13 converged=True
+RLM 2025-02-28 n=5,368 beta=-0.00802955 z=-1.097 iterations=14 converged=True
+RLM 2025-03-31 n=5,359 beta=-0.04398304 z=-6.189 iterations=16 converged=True
+RLM 2025-04-30 n=5,325 beta=-0.04969637 z=-8.306 iterations=13 converged=True
+RLM 2025-05-30 n=5,367 beta=-0.02045022 z=-3.852 iterations=14 converged=True
+RLM 2025-06-30 n=5,388 beta=-0.00130000 z=-0.210 iterations=14 converged=True
+RLM 2025-07-31 n=5,396 beta=0.04608227 z=5.775 iterations=13 converged=True
+RLM 2025-08-29 n=5,396 beta=0.02980890 z=3.947 iterations=17 converged=True
+RLM 2025-09-30 n=5,409 beta=-0.06993865 z=-10.577 iterations=14 converged=True
+RLM 2025-10-31 n=5,409 beta=-0.01981024 z=-3.225 iterations=14 converged=True
+RLM completed
+factor=SIZE
+months=64
+factor_mean=-0.0147816105
+factor_iid_t=-3.833823
+factor_iid_p=0.000294
+factor_positive_ratio=0.281250
+saved=D:\因子计算\市盈率\EP因子_交付版\回归结果\size\RLM_H1_独立同方差
+
+[elapsed] 21.2 s

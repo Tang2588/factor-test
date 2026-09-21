@@ -1,8 +1,10 @@
+Factor: EP (D:\因子计算\市盈率\EP因子_交付版\因子结果\ep.parquet)
+Output: D:\因子计算\市盈率\EP因子_交付版\回归结果\ep\RLM_H1_独立同方差
 Scanning market index (calendar + BSE code switch)...
   trading days=1,455; BSE switch 2025-09-30 -> 2025-10-09 (242 conversions)
 Reading 129 selected market dates...
 Deriving and validating BSE code mapping...
-Reading monthly EP and industry cross-sections...
+Reading monthly factor and industry cross-sections...
 Building fixed-endpoint adjusted forward returns...
 Building monthly regression samples...
 Running monthly Huber RLM...
@@ -71,11 +73,12 @@ RLM 2025-08-29 n=5,387 beta=0.00282931 z=2.149 iterations=18 converged=True
 RLM 2025-09-30 n=5,400 beta=-0.00059234 z=-0.520 iterations=14 converged=True
 RLM 2025-10-31 n=5,398 beta=-0.00316710 z=-2.811 iterations=14 converged=True
 RLM completed
+factor=EP
 months=64
-ep_mean=0.0016232117
-ep_iid_t=1.448688
-ep_iid_p=0.152384
-ep_positive_ratio=0.531250
-saved=D:\���Ӽ���\��ӯ��\EP����_������\�ع���\RLM_H1_����ͬ����
+factor_mean=0.0016232117
+factor_iid_t=1.448688
+factor_iid_p=0.152384
+factor_positive_ratio=0.531250
+saved=D:\因子计算\市盈率\EP因子_交付版\回归结果\ep\RLM_H1_独立同方差
 
-[elapsed] 26.8 s
+[elapsed] 20.7 s

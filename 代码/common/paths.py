@@ -62,3 +62,18 @@ FIGURE_DIR = PROJECT_ROOT / "图形"
 EP_PATH = FACTOR_DIR / "ep.parquet"
 PE_PATH = FACTOR_DIR / "pe.parquet"
 TEST_START_PATH = MID_DIR / "factor_test_start.json"
+
+
+def resolve_factor_path(factor: str) -> Path:
+    """把因子名或路径解析为因子文件。
+
+    支持三种写法：
+
+    - ``"ep"``                          → ``因子结果/ep.parquet``
+    - ``"因子结果/ep.parquet"``          → 相对项目根目录解析
+    - ``"D:/其它/因子/pb.parquet"``      → 绝对路径直接使用
+    """
+    candidate = Path(factor)
+    if candidate.suffix.lower() == ".parquet" or candidate.exists():
+        return candidate if candidate.is_absolute() else (PROJECT_ROOT / candidate)
+    return FACTOR_DIR / f"{factor}.parquet"
