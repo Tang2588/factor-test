@@ -297,14 +297,28 @@ def save_report(
         "",
         "## 3. 分年度结果",
         "",
-        "| 年份 | 月数 | 中性化 IC 均值 | 原始 IC 均值 | IC 标准差 | IR | IC > 0 比例 | abs(IC) > 0.02 比例 | 平均样本数 |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "**表 1：中性化 IC（主口径）**",
+        "",
+        "| 年份 | 月数 | IC 均值 | IC 标准差 | IR | IC > 0 比例 | abs(IC) > 0.02 比例 | 平均样本数 |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in annual.itertuples(index=False):
         lines.append(
-            f"| {row.period} | {row.months} | {num(row.ic_mean)} | {num(row.ic_raw_mean)} | {num(row.ic_std)} | "
+            f"| {row.period} | {row.months} | {num(row.ic_mean)} | {num(row.ic_std)} | "
             f"{num(row.ir)} | {pct(row.ic_positive_ratio)} | {pct(row.ic_strong_ratio)} | "
             f"{row.n_mean:,.0f} |"
+        )
+    lines += [
+        "",
+        "**表 2：原始 IC（对照口径）**",
+        "",
+        "| 年份 | 月数 | IC 均值 | IC 标准差 | IR | IC > 0 比例 |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in annual.itertuples(index=False):
+        lines.append(
+            f"| {row.period} | {row.months} | {num(row.ic_raw_mean)} | {num(row.ic_raw_std)} | "
+            f"{num(row.ic_raw_ir)} | {pct(row.ic_raw_positive_ratio)} |"
         )
 
     lines += [
