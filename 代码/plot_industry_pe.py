@@ -21,7 +21,7 @@ PE_PATH = BASE / "中间结果" / "pe_raw.parquet"
 INDUSTRY_PATH = Path(r"D:\实习生学习项目\基础数据\chn_equ_indus_sw.parquet")
 CSV_PATH = BASE / "中间结果" / "industry_pe_latest.csv"
 PNG_PATH = BASE / "图形" / "industry_pe_latest.png"
-TEX_PATH = BASE / "行业PE柱状图.tex"
+TEX_PATH = BASE / "图形" / "行业PE柱状图.tex"
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False

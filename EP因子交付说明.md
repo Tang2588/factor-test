@@ -44,21 +44,26 @@ EP因子_交付版
 ├─ 图形
 │  ├─ ep_原始分布.png
 │  ├─ pe_分布.png
-│  └─ industry_pe_latest.png
+│  ├─ industry_pe_latest.png
+│  └─ daily_return_distribution_20251229.png
+├─ 标准化统计
+│  ├─ *.csv
+│  └─ 图形
 ├─ 回归结果
-│  └─ RLM_新口径
+│  ├─ OLS_月度
+│  ├─ OLS_单日示例
+│  └─ RLM_H1_独立同方差
 │     ├─ RLM统计结果.md
 │     ├─ forward_monthly_returns.parquet
 │     ├─ rlm_regression_sample.parquet
 │     ├─ rlm_monthly_results.parquet / rlm_monthly_results.csv
 │     └─ rlm_annual_summary.csv / rlm_overall_summary.csv
-├─ EP_PE结果统计分析.tex
-├─ EP_PE结果统计分析.pdf
 ├─ EP_PE统计分析与因子测试计划.md
 ├─ EP_PE统计分析与因子测试计划.tex
 ├─ EP_PE统计分析与因子测试计划.pdf
-├─ EP_PE结果统计简版.tex
-├─ 行业PE柱状图.tex
+├─ MAD去极值与标准化统计分析.md / .tex / .pdf
+├─ 处理记录.md
+├─ README.md
 └─ EP因子交付说明.md
 ```
 
@@ -79,14 +84,13 @@ columns = ['signal']
 - `中间结果\factor_test_start.json`：覆盖率稳定规则及正式测试起点。
 - `中间结果\report_version_decisions.parquet`：每条财报版本的采用或忽略决策，旧公告回退记录明确标记为忽略。
 - `中间结果\point_in_time_field_audit.*`：ST、上市日期和交易状态字段的来源、可用性及筛选状态。
-- `EP_PE结果统计分析.tex/.pdf`：修改前的 LaTeX 统计快照；新口径定稿前以 Markdown 主文档和 Parquet 结果为准。
 - `EP_PE统计分析与因子测试计划.md`：便于实时预览和直接修改的 Markdown 主文档；公式采用兼容所有预览器的纯文本数学格式，行业图引用 `图形\industry_pe_latest.png`。
-- `EP_PE统计分析与因子测试计划.tex/.pdf`：修改前的合并版快照，待 Markdown 内容定稿后重新生成。
-- `EP_PE结果统计简版.tex`：修改前的一页 LaTeX 正文快照，待 Markdown 定稿后更新。
-- `行业PE柱状图.tex`：使用 `pgfplots` 绘制的申万一级行业原始 PE 柱状图正文片段。
+- `EP_PE统计分析与因子测试计划.tex/.pdf`：主文档的 XeLaTeX 源文件和编译版。
+- `MAD去极值与标准化统计分析.md/.tex/.pdf`：MAD 去极值和 Z 标准化专项分析。
 - `中间结果\industry_pe_latest.csv`：行业柱状图对应的统计明细。
 - `图形\industry_pe_latest.png`：同口径的 PNG 预览图。
-- `回归结果\RLM_新口径\RLM统计结果.md`：新口径 EP 月度横截面 Huber RLM 的完整统计结果。
+- `图形\行业PE柱状图.tex`：行业图脚本生成的 `pgfplots` 正文片段。
+- `回归结果\RLM_H1_独立同方差\RLM统计结果.md`：当前 EP 月度横截面 Huber RLM 的完整统计结果。
 
 ## 2. 输入数据
 
@@ -313,19 +317,20 @@ Step 5 同时生成逐日覆盖率。正式测试起点采用固定规则：非�
 池化中位数约为 `0.0211`，原始 PE 池化中位数约为 `26.2719` 倍。
 
 当前修改阶段以 `EP_PE统计分析与因子测试计划.md` 为主文档，其中统计数字及行业图已按
-89 只 B 股过滤、北交所代码映射和公告版本防回退口径更新。现有 `.tex/.pdf` 是本轮修改前的快照，待
-Markdown 定稿后再统一转换和编译。
+89 只 B 股过滤、北交所代码映射和公告版本防回退口径更新；对应 `.tex/.pdf` 已同步编译。
 
-目录中的旧月度 OLS 和单日 OLS 文件均早于本次口径修正，仍不能作为新口径的回归结论。
+`OLS_月度` 和 `OLS_单日示例` 中的结果均早于本次口径修正，仍不能作为新口径的正式回归结论。
 本次已使用 `monthly_rlm_ep.py` 完成 64 个月度横截面 Huber RLM，正式结果位于
-`回归结果\RLM_新口径`；尚未运行 OLS/WLS 对照、IC 或分层回测。
+`回归结果\RLM_H1_独立同方差`。单月系数使用 H1 标准误计算大样本近似 `z` 值，
+月度系数序列暂按独立同方差假设推断，不使用 Newey--West HAC；尚未运行
+新口径 OLS/WLS 对照、IC 或分层回测。
 
 | RLM 核心指标 | 结果 |
 |---|---:|
 | 完整持有期 | 64 个月 |
 | EP 月均系数 | 0.1623% |
-| EP HAC `t` 值 | 1.2713 |
-| EP HAC `p` 值 | 0.2036 |
+| EP IID `t` 值 | 1.4487 |
+| EP IID `p` 值 | 0.1524 |
 | EP 系数为正的月份 | 53.12% |
 | 月度模型收敛 | 64 / 64 |
 
@@ -352,7 +357,8 @@ python monthly_rlm_ep.py
 
 行业图脚本 `plot_industry_pe.py` 读取最新原始 PE 截面和申万一级行业表，以行业内
 原始 PE 中位数绘图，同时生成 `industry_pe_latest.csv`、PNG 预览和纯 LaTeX
-`pgfplots` 片段。当前截面为 `2025-12-31`，31 个行业共使用 5,438 条行业和 PE
+`pgfplots` 片段；图形和片段统一写入 `图形` 目录。当前截面为 `2025-12-31`，
+31 个行业共使用 5,438 条行业和 PE
 均有效的观测；该脚本只做描述性统计，不运行回归检验。
 
 ## 9. 限制
@@ -362,5 +368,5 @@ python monthly_rlm_ep.py
 3. 当前没有正式上市、退市及北交所转板日期表；股票池按行情表当日记录和交易所后缀构造，无法独立核验每只股票的精确上市、退市或转板边界。
 4. 北交所新旧代码映射由行情表休市前后的价格和总股本推导，已通过一一对应及价格连续性检查，但仍不是外部官方映射表。
 5. 本交付只计算因子，不包含 T+1 实际成交、涨跌停、复牌执行、滑点或交易成本模拟。
-6. 本次已运行新口径 RLM，但没有运行 OLS/WLS 对照、IC 或分层回测；`回归结果` 根目录中的旧 OLS 文件仍为历史结果。
+6. 本次已运行 H1 协方差口径的 RLM，但没有运行新口径 OLS/WLS 对照、IC 或分层回测；两个 OLS 子目录中的文件仍为历史结果或学习示例。
 7. PE 在亏损和接近零利润区间存在金融含义和数值稳定性差异，正式选股使用哪一个方向应结合研究口径确认。

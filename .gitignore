@@ -10,12 +10,21 @@ __pycache__/
 因子结果/
 回归结果/
 图形/
+标准化统计/
 
 # Generated document artifacts
 *.aux
 *.log
 *.out
+*.toc
+*.synctex.gz
 *.pdf
+*.zip
+
+# Re-creatable document bundles
+latex_assets/
+overleaf_package/
+overleaf_simple/
 
 # Machine-local configuration
 config/paths.local.toml

@@ -1,0 +1,264 @@
+\documentclass[UTF8,11pt,a4paper,fontset=windows]{ctexart}
+
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,longtable,array}
+\usepackage{graphicx,float}
+\usepackage{xcolor}
+\usepackage{fvextra}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.35em}
+\renewcommand{\arraystretch}{1.2}
+\hypersetup{
+  pdftitle={MAD 去极值与 Z 标准化统计分析}
+}
+
+\title{MAD 去极值与 Z 标准化统计分析}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\noindent\textbf{样本期：}2020-01-02 至 2025-12-31\\
+\textbf{正式测试起点：}2020-07-31
+
+\section{问题}
+
+\begin{enumerate}
+  \item 为啥用 MAD 去极值；
+  \item 去极值后对异常值怎么处理；
+  \item 处理前后的 1 到 4 阶矩；
+  \item 这样处理的好处与缺点；
+  \item 是否有其他方式处理。
+\end{enumerate}
+
+\section{实际处理公式与为什么这样做}
+
+对每个交易日、每个因子分别计算：
+
+\begin{Verbatim}[fontsize=\small,breaklines=true]
+median_t = median(x_i,t)
+MAD_t    = median(abs(x_i,t - median_t))
+scale_t  = 1.4826 * MAD_t
+lower_t  = median_t - 3 * scale_t
+upper_t  = median_t + 3 * scale_t
+x_mad    = clip(x, lower_t, upper_t)
+z_i,t    = (x_mad_i,t - mean_t(x_mad)) / std_t(x_mad, ddof=0)
+\end{Verbatim}
+
+\subsection{为什么用中位数和 MAD}
+
+如果假设因子服从正态分布的话，并且认为 \(3\sigma\) 以外是异常值，对异常值需要处理。目的是估计准确均值和方差，但我们不知总体的均值和方差，所以需要用样本估计。样本均值是总体均值的无偏估计，样本中位数是总体中位数的无偏估计，且中位数更稳健。MAD 是总体 MAD 的稳健估计；在正态分布假设下，\(1.4826\times\mathrm{MAD}\) 可作为标准差 \(\sigma\) 的稳健估计。
+
+\subsection{为什么截断而不是删除}
+
+缩尾可以使得均值和方差的估计更稳健，但是不应该直接对异常值做删除处理，会失去大量公司的信息，因为这些异常值具有真实的经济含义，比如公司严重亏损；净利润接近零；周期行业盈利剧烈变化；直接删除可能捕捉不到超额的 alpha。实际数据明显尖峰厚尾，用正态估计只是方便计算，可以改成 \(t\) 估计，还有其它的处理方式，还未了解。
+
+\section{样本有效性与处理数量}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrrrr}
+\toprule
+因子 & 范围 & 有效观测 & 截断观测 & 加权截断率 & 每日截断率中位数 & 每日截断率 10\%--90\% & 恒定截面 \\
+\midrule
+EP & 全样本     & 6,732,630 & 745,075 & 11.07\% & 11.68\% & 8.58\%--13.73\% & 1 \\
+EP & 正式测试期 & 6,469,903 & 710,954 & 10.99\% & 11.47\% & 8.68\%--13.61\% & 0 \\
+PE & 全样本     & 6,732,630 & 953,354 & 14.16\% & 14.25\% & 12.95\%--15.03\% & 1 \\
+PE & 正式测试期 & 6,469,903 & 914,767 & 14.14\% & 14.25\% & 13.10\%--14.90\% & 0 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+明显用 EP 作为因子截断的比例低于 PE，因为净利润接近于 0 时。PE 更容易出现极端值，而 EP 不会有这种情况，用 EP 作为统计因子更有优势。实际统计原始因子的时候，银行、房地产等行业更容易出现极端值，PE 很小。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\textwidth,height=0.72\textheight,keepaspectratio]{标准化统计/图形/monthly_clipping_rate.png}
+  \caption{正式测试期月度 MAD 截断比例}
+\end{figure}
+
+\section{原始值、MAD 值和 Z 值}
+
+\begin{itemize}
+  \item \textbf{原始值}：保留绝对经济含义，可回答盈利收益率是多少、PE 是多少倍，也最适合排查财报和市值异常；缺点是均值、标准差和 Pearson 相关容易被极端值主导。
+  \item \textbf{MAD 值}：仍保留原因子单位，但限制尾部影响，可观察截断对均值、波动、偏度和峰度的改变；尾部内部排序会产生并列。
+  \item \textbf{Z 值}：表示股票相对当日横截面的标准差位置，适合跨期比较和回归。
+\end{itemize}
+
+\subsection{按 PE/EP 为口径分布统计}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llrrrrrrr}
+\toprule
+因子 & 阶段 & 观测数 & 均值 & 标准差 & 中位数 & 1\% / 99\% & 偏度 & 超额峰度 \\
+\midrule
+EP & 原始值 & 6,732,630 & 0.0069 & 0.1746 & 0.0211 & $-0.4161 / 0.1745$ & $-36.76$ & 3,265.05 \\
+EP & MAD 后 & 6,732,630 & 0.0204 & 0.0396 & 0.0211 & $-0.0743 / 0.1095$ & $-0.23$ & 0.39 \\
+EP & Z 值 & 6,732,629 & $6.121\times10^{-19}$ & 1.0000 & 0.0181 & $-2.1728 / 2.2086$ & $-0.22$ & 0.23 \\
+PE & 原始值 & 6,732,630 & $-13.3974$ & 12,684.6356 & 26.2719 & $-592.1720 / 751.4696$ & $-211.99$ & 48,710.53 \\
+PE & MAD 后 & 6,732,630 & 30.2662 & 52.3112 & 26.2719 & $-109.4892 / 167.3268$ & 0.10 & 1.07 \\
+PE & Z 值 & 6,732,629 & $-1.032\times10^{-18}$ & 1.0000 & $-0.0710$ & $-2.1524 / 2.0103$ & 0.07 & 0.11 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+从统计信息可以得出几个结论。
+\begin{enumerate}
+  \item 原始 EP/PE 明显尖峰、厚尾、负偏，经典正态分布假设不符合。
+  \item 原始的 4 个矩受极端值影响巨大，甚至出现去极值后负 PE 变为正的。
+  \item MAD 显著改善统计稳定性，但是同时他也改变了分布，强行把数据拉到正态分布，对其具体的影响现在还不太了解。
+\end{enumerate}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\textwidth,height=0.72\textheight,keepaspectratio]{标准化统计/图形/latest_distribution_transform.png}
+  \caption{最新截面处理前后分布}
+\end{figure}
+
+Z 分布两端出现的尖柱来自截断端点堆积：所有越过同一侧 MAD 阈值的观测都会被压到同一个数值，再经过同一组均值和标准差变换。它是缩尾处理的机械结果，不代表端点附近聚集了大量原始观测。
+
+\section{Z 标准化验收}
+
+\begin{table}[H]
+\centering
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrr}
+\toprule
+因子 & 标准化交易日 & 日均值绝对值最大值 & 日标准差偏离 1 的最大值 & 池化均值 & 池化标准差 & $|Z|>1$ & $|Z|>2$ & $|Z|>3$ \\
+\midrule
+EP & 1454 & $2.22\times10^{-16}$ & $3.55\times10^{-15}$ & $6.12\times10^{-19}$ & 1.000000 & 27.46\% & 11.77\% & 0.00\% \\
+PE & 1454 & $3.32\times10^{-16}$ & $3.77\times10^{-15}$ & $-1.03\times10^{-18}$ & 1.000000 & 27.95\% & 7.29\% & 0.00\% \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+标准化处理不会带来新的信息。但是可以只管看到公司的因子在当日横截面是与均值相差几个标准差，与市场的偏离程度，同时也方便后续的排序，回归。
+
+\section{异常值集中在哪里}
+
+\subsection{按年份}
+
+\begin{longtable}{llrrrrr}
+\toprule
+因子 & 年份 & 交易日 & 有效观测 & 截断观测 & 截断率 & 日中位数的年度中位 \\
+\midrule
+\endfirsthead
+\toprule
+因子 & 年份 & 交易日 & 有效观测 & 截断观测 & 截断率 & 日中位数的年度中位 \\
+\midrule
+\endhead
+\midrule
+\multicolumn{7}{r}{续下页} \\
+\endfoot
+\bottomrule
+\endlastfoot
+EP & 2020 & 104 & 411,074   & 56,697  & 13.79\% & 0.0186 \\
+EP & 2021 & 243 & 1,045,644 & 137,779 & 13.18\% & 0.0237 \\
+EP & 2022 & 242 & 1,156,503 & 148,582 & 12.85\% & 0.0240 \\
+EP & 2023 & 242 & 1,253,411 & 133,129 & 10.62\% & 0.0217 \\
+EP & 2024 & 242 & 1,291,935 & 116,814 & 9.04\%  & 0.0243 \\
+EP & 2025 & 243 & 1,311,336 & 117,953 & 8.99\%  & 0.0152 \\
+PE & 2020 & 104 & 411,074   & 56,801  & 13.82\% & 32.4706 \\
+PE & 2021 & 243 & 1,045,644 & 137,912 & 13.19\% & 28.8873 \\
+PE & 2022 & 242 & 1,156,503 & 166,316 & 14.38\% & 26.6194 \\
+PE & 2023 & 242 & 1,253,411 & 181,977 & 14.52\% & 25.6143 \\
+PE & 2024 & 242 & 1,291,935 & 189,251 & 14.65\% & 22.4172 \\
+PE & 2025 & 243 & 1,311,336 & 182,510 & 13.92\% & 26.9326 \\
+\end{longtable}
+
+明显看到 21--25 年完整覆盖的年份，PE 和 EP 因子的截断率都是几乎没发生太大改变的，这说明了，这个异常值只是我们正太分布统计口径下的异常值，而不是他真实分布的异常值？因为其真实分布我们无从得知，如果排除熊市牛市的变化，这个截断比例是否说明用 \(3\sigma\) 截断会损失的信息偏多呢？改用更宽松的截断方式或者用其它估计可以考虑，比如改用 4、5 倍 \(\sigma\) 采取截断，保留的信息会如何。如果直接使用缩尾后的因子值去进行排序，是否会失去边界股票的信息。
+
+\subsection{对沪深和北交所的股票分别分析，按照市场、年份、行业拆分}
+
+以下市场、市值和正负值分组均使用 2020-07-31 起的正式测试期样本。市值组在每个交易日分别按总市值五等分，因此反映的是相对市值层级，而不是固定市值门槛。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\textwidth,height=0.72\textheight,keepaspectratio]{标准化统计/图形/clipping_by_market_and_size.png}
+  \caption{按市场和市值组的截断比例}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrrrr}
+\toprule
+因子 & 市场 & 有效观测 & 负值占比 & 下尾截断 & 上尾截断 & 截断率 \\
+\midrule
+EP & 深市 A 股 & 3,511,051 & 24.37\% & 307,777 & 85,185  & 11.19\% \\
+EP & 沪市 A 股 & 2,763,762 & 18.77\% & 159,092 & 153,994 & 11.33\% \\
+EP & 北交所     & 195,090   & 10.73\% & 3,316   & 1,590   & 2.51\% \\
+PE & 深市 A 股 & 3,511,051 & 24.37\% & 219,221 & 314,451 & 15.20\% \\
+PE & 沪市 A 股 & 2,763,762 & 18.77\% & 145,168 & 217,621 & 13.13\% \\
+PE & 北交所     & 195,090   & 10.73\% & 7,530   & 10,776  & 9.38\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+统计结果显示，沪深 a 股的截断比例明显高于北交所的，并且沪深的截断比例相当接近，但是深市的下尾截断异常高，且深市的 PE 因子明显具有偏态分布，但这并不说明这三个市场北交所的质量更好，因为 PE 因子是明显和行业有强相关性的，除非 3 个市场的行业分布相当。并且北交所是新上市的市场，而沪深的股票大部分是上市长时间且稳定的股票，跨市场对比是不合理的，但是统计这个截断比例还是有方向性判断。后续可以接着统计一下 3 个市场的行业分布进行判断。
+
+\subsection{最新截面的行业集中度}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrr}
+\toprule
+因子 & 行业 & 有效观测 & 截断观测 & 截断率 \\
+\midrule
+EP & 银行     & 42  & 42  & 100.00\% \\
+EP & 房地产   & 100 & 43  & 43.00\% \\
+EP & 钢铁     & 44  & 11  & 25.00\% \\
+EP & 建筑装饰 & 163 & 39  & 23.93\% \\
+EP & 公用事业 & 132 & 23  & 17.42\% \\
+PE & 国防军工 & 140 & 47  & 33.57\% \\
+PE & 计算机   & 358 & 88  & 24.58\% \\
+PE & 通信     & 128 & 28  & 21.88\% \\
+PE & 电子     & 491 & 106 & 21.59\% \\
+PE & 建筑材料 & 73  & 15  & 20.55\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.94\textwidth,height=0.72\textheight,keepaspectratio]{图形/industry_pe_latest.png}
+  \caption{2025 年 12 月 31 日申万一级行业原始 PE 中位数}
+\end{figure}
+
+可以看到，PE 具有明显的分行业特征，即银行、房地产之类的行业 PE 是极小的，如果把他们放在总体数据中做处理，很容易被当成极端值给抹除信息，行业的信息被丢失了，更加稳健的做法是在行业内部做去极值。
+
+\section{对异常值处理的思考}
+
+排除明显的错误数据，极端值应该考虑保留，删除或是缩尾等处理。
+
+\begin{enumerate}
+  \item 对于比如直接计算截面排名，直接保留原始的因子值统计排名，可以的得到更加充分信息，但会失去因子间的相对关系。
+  \item 直接删除，好处不会使得极端值进入统计中污染数据，缺点，幸存者偏差，失去信息。
+  \item 缩尾。
+  \item 对于明显有右偏倾向的数据可以做对数处理。
+\end{enumerate}
+
+此次统计得到的想法，可以使用更宽的 MAD 边界缩放异常值，保留更多信息。
+
+再行业内部分层使用 MAD 取极值，以免银行、房地产这里被当作极端值处理掉。
+
+深市的 PE 因子明显具有偏态分布，是否考虑对上下界取不同的截断。
+
+异常值直接压缩为一个点？是否可以找一个函数使得压缩后的数据是平滑的。
+
+\end{document}
