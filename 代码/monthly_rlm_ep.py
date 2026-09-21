@@ -1,496 +1,58 @@
 # -*- coding: utf-8 -*-
-"""Run monthly cross-sectional Huber RLM for the standardized EP factor."""
+"""EP 因子月度横截面 Huber RLM 回归。
+
+本脚本只负责估计方法和结果呈现，数据准备全部调用 ``common`` 共享模块，
+与 ``monthly_ols_ep_size.py`` 使用同一套样本、同一套前瞻收益、同一套控制变量。
+"""
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pyarrow.parquet as pq
 import statsmodels.api as sm
+from scipy.stats import t as student_t
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from common import (  # noqa: E402
+    HUBER_T,
+    INDUSTRY_PATH,
+    MARKET_PATH,
+    MAX_ITER,
+    MIN_OBSERVATIONS,
+    REG_DIR,
+    TEST_START_PATH,
+    TOL,
+    build_endpoint_forward_returns,
+    build_monthly_calendar,
+    build_regression_panel,
+    derive_bse_mapping,
+    prepare_formation_panel,
+    prepare_industry,
+    prepare_market_snapshot,
+    read_selected_dates,
+    scan_market_index,
+)
+from common.paths import EP_PATH  # noqa: E402
+
+OUT_DIR = REG_DIR / "RLM_H1_独立同方差"
 
 
-ROOT = Path(__file__).resolve().parents[1]
-BASE = Path(r"D:\实习生学习项目\基础数据")
-EP_PATH = ROOT / "因子结果" / "ep.parquet"
-MARKET_PATH = BASE / "chn_equ_mkt_quotation.parquet"
-INDUSTRY_PATH = BASE / "chn_equ_indus_sw.parquet"
-TEST_START_PATH = ROOT / "中间结果" / "factor_test_start.json"
-OUT_DIR = ROOT / "回归结果" / "RLM_新口径"
-
-HUBER_T = 1.345
-MAX_ITER = 100
-TOL = 1e-8
-HAC_LAGS = 3
-MIN_OBSERVATIONS = 500
-EXPECTED_BSE_CONVERSIONS = 242
-TRANSITION_OLD_DATE = pd.Timestamp("2025-09-30")
-TRANSITION_NEW_DATE = pd.Timestamp("2025-10-09")
-
-
-def read_selected_dates(
-    path: Path,
-    columns: list[str],
-    dates: set[pd.Timestamp],
-    batch_size: int = 200_000,
-) -> pd.DataFrame:
-    pieces: list[pd.DataFrame] = []
-    for batch in pq.ParquetFile(path).iter_batches(columns=columns, batch_size=batch_size):
-        frame = batch.to_pandas(ignore_metadata=True)
-        frame["date"] = pd.to_datetime(frame["date"]).dt.normalize()
-        selected = frame.loc[frame["date"].isin(dates)].copy()
-        if not selected.empty:
-            pieces.append(selected)
-    if not pieces:
-        return pd.DataFrame(columns=columns)
-    return pd.concat(pieces, ignore_index=True)
-
-
-def read_market_dates(path: Path) -> pd.DatetimeIndex:
-    dates: set[pd.Timestamp] = set()
-    for batch in pq.ParquetFile(path).iter_batches(columns=["date"], batch_size=300_000):
-        values = pd.to_datetime(batch.to_pandas(ignore_metadata=True)["date"]).dt.normalize()
-        dates.update(values)
-    return pd.DatetimeIndex(sorted(dates))
-
-
-def normalize_market_code(series: pd.Series) -> pd.Series:
-    return series.astype("string").str.strip().str.upper()
-
-
-def extract_code6(series: pd.Series) -> pd.Series:
-    return normalize_market_code(series).str.extract(r"(\d{6})", expand=False)
-
-
-def b_share_mask(series: pd.Series) -> pd.Series:
-    code = normalize_market_code(series)
-    sh_b = code.str.startswith("900", na=False) & code.str.endswith(".BJ", na=False)
-    sz_b = code.str.startswith(("200", "201"), na=False) & code.str.endswith(".SZ", na=False)
-    return sh_b | sz_b
-
-
-def build_monthly_calendar(
-    market_dates: pd.DatetimeIndex,
-    test_start: pd.Timestamp,
-) -> pd.DataFrame:
-    date_frame = pd.DataFrame({"date": market_dates})
-    periods = date_frame["date"].dt.to_period("M")
-    first_by_month = date_frame.groupby(periods)["date"].min().to_dict()
-    last_by_month = date_frame.groupby(periods)["date"].max().to_dict()
-
-    rows = []
-    for period in sorted(last_by_month):
-        formation_date = pd.Timestamp(last_by_month[period])
-        entry_period = period + 1
-        exit_period = period + 2
-        if formation_date < test_start:
-            continue
-        if entry_period not in first_by_month or exit_period not in first_by_month:
-            continue
-        rows.append(
-            {
-                "formation_month": str(period),
-                "formation_date": formation_date,
-                "entry_date": pd.Timestamp(first_by_month[entry_period]),
-                "exit_date": pd.Timestamp(first_by_month[exit_period]),
-            }
-        )
-    calendar = pd.DataFrame(rows)
-    if calendar.empty:
-        raise ValueError("No complete monthly forward-return intervals are available")
-    return calendar
-
-
-def prepare_market_snapshot(raw: pd.DataFrame) -> pd.DataFrame:
-    market = raw.copy()
-    market["market_code"] = normalize_market_code(market["stock_code"])
-    market = market.loc[~b_share_mask(market["market_code"])].copy()
-    market["code6"] = extract_code6(market["market_code"])
-    if market["code6"].isna().any():
-        raise ValueError("Market data contains an unparseable stock code")
-
-    suspended_numeric = pd.to_numeric(market["suspended"], errors="coerce")
-    status = market["status"].astype("string").str.strip()
-    market["suspended_flag"] = (
-        suspended_numeric.eq(1).fillna(False) | status.eq("停牌").fillna(False)
-    )
-    for column in [
-        "close",
-        "pre_close",
-        "close_adj",
-        "pre_close_adj",
-        "share_total",
-        "me_total",
-        "up_limit",
-        "down_limit",
-    ]:
-        market[column] = pd.to_numeric(market[column], errors="coerce")
-    market["at_up_limit"] = np.isclose(
-        market["close"], market["up_limit"], rtol=0.0, atol=1e-8, equal_nan=False
-    )
-    market["at_down_limit"] = np.isclose(
-        market["close"], market["down_limit"], rtol=0.0, atol=1e-8, equal_nan=False
-    )
-    if market.duplicated(["date", "market_code"]).any():
-        raise ValueError("Market data contains duplicate date + market_code rows")
-    return market
-
-
-def derive_bse_mapping(market: pd.DataFrame) -> pd.DataFrame:
-    old = market.loc[
-        market["date"].eq(TRANSITION_OLD_DATE)
-        & market["market_code"].str.match(r"^(43|83|87)\d{4}\.BJ$", na=False),
-        ["market_code", "close", "close_adj", "share_total"],
-    ].rename(
-        columns={
-            "market_code": "old_code",
-            "close": "old_close",
-            "close_adj": "old_close_adj",
-            "share_total": "old_share_total",
-        }
-    )
-    new = market.loc[
-        market["date"].eq(TRANSITION_NEW_DATE)
-        & market["market_code"].str.match(r"^920\d{3}\.BJ$", na=False),
-        ["market_code", "pre_close", "pre_close_adj", "share_total"],
-    ].rename(
-        columns={
-            "market_code": "new_code",
-            "pre_close": "new_pre_close",
-            "pre_close_adj": "new_pre_close_adj",
-            "share_total": "new_share_total",
-        }
-    )
-    preexisting_new_codes = set(
-        market.loc[
-            market["date"].eq(TRANSITION_OLD_DATE)
-            & market["market_code"].str.match(r"^920\d{3}\.BJ$", na=False),
-            "market_code",
-        ]
-    )
-
-    candidates = old.merge(
-        new,
-        left_on="old_close",
-        right_on="new_pre_close",
-        how="left",
-        validate="many_to_many",
-    )
-    candidates["share_total_equal"] = np.isclose(
-        candidates["old_share_total"],
-        candidates["new_share_total"],
-        rtol=1e-12,
-        atol=1e-6,
-        equal_nan=False,
-    )
-
-    selected_rows = []
-    for old_code, group in candidates.groupby("old_code", sort=True):
-        available = group.loc[group["new_code"].notna()].copy()
-        if len(available) == 1:
-            selected = available.iloc[0].copy()
-            selected["match_method"] = "exact_price"
-        else:
-            exact_share = available.loc[available["share_total_equal"]]
-            if len(exact_share) != 1:
-                raise ValueError(
-                    f"BSE mapping is ambiguous for {old_code}: "
-                    f"price candidates={len(available)}, share matches={len(exact_share)}"
-                )
-            selected = exact_share.iloc[0].copy()
-            selected["match_method"] = "exact_price_and_share_total"
-        selected_rows.append(selected)
-
-    mapping = pd.DataFrame(selected_rows).reset_index(drop=True)
-    newly_converted = set(new["new_code"]) - preexisting_new_codes
-    if len(mapping) != EXPECTED_BSE_CONVERSIONS:
-        raise ValueError(f"Expected {EXPECTED_BSE_CONVERSIONS} BSE mappings, got {len(mapping)}")
-    if mapping["old_code"].nunique() != len(mapping) or mapping["new_code"].nunique() != len(mapping):
-        raise ValueError("BSE old/new code mapping is not one-to-one")
-    if set(mapping["new_code"]) != newly_converted:
-        raise ValueError("BSE mapping targets do not equal the newly converted 920 codes")
-    if not np.allclose(
-        mapping["old_close"], mapping["new_pre_close"], rtol=0.0, atol=1e-10
-    ):
-        raise ValueError("BSE raw prices are discontinuous across the code conversion")
-    if not np.allclose(
-        mapping["old_close_adj"], mapping["new_pre_close_adj"], rtol=0.0, atol=1e-10
-    ):
-        raise ValueError("BSE adjusted prices are discontinuous across the code conversion")
-
-    mapping.insert(0, "old_last_date", TRANSITION_OLD_DATE)
-    mapping.insert(1, "new_first_date", TRANSITION_NEW_DATE)
-    return mapping[
-        [
-            "old_last_date",
-            "new_first_date",
-            "old_code",
-            "new_code",
-            "match_method",
-            "old_close",
-            "new_pre_close",
-            "old_close_adj",
-            "new_pre_close_adj",
-            "old_share_total",
-            "new_share_total",
-        ]
-    ]
-
-
-def apply_security_id(frame: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
-    result = frame.copy()
-    mapped = result["market_code"].map(mapping)
-    result["security_id"] = mapped.fillna(result["market_code"]).astype("string")
-    return result
-
-
-def prepare_formation_panel(
-    market: pd.DataFrame,
-    ep: pd.DataFrame,
-    signal_dates: set[pd.Timestamp],
-    mapping: dict[str, str],
-) -> pd.DataFrame:
-    formation = market.loc[market["date"].isin(signal_dates)].copy()
-    formation = apply_security_id(formation, mapping)
-    if formation.duplicated(["date", "security_id"]).any():
-        raise ValueError("Formation market panel is not unique after security mapping")
-
-    factor = ep.copy()
-    factor["code6"] = extract_code6(factor["stock_code"])
-    factor["ep_z"] = pd.to_numeric(factor["signal"], errors="coerce")
-    factor = factor[["date", "code6", "ep_z"]]
-    if factor.duplicated(["date", "code6"]).any():
-        raise ValueError("EP factor is not unique by date + code6")
-
-    formation = formation.merge(
-        factor,
-        on=["date", "code6"],
-        how="left",
-        validate="one_to_one",
-        indicator="factor_join",
-    )
-    if not formation["factor_join"].eq("both").all():
-        missing = int(formation["factor_join"].ne("both").sum())
-        raise ValueError(f"Formation market rows missing from EP output: {missing}")
-    formation = formation.drop(columns="factor_join")
-
-    formation["log_mv"] = np.where(
-        np.isfinite(formation["me_total"]) & formation["me_total"].gt(0),
-        np.log(formation["me_total"]),
-        np.nan,
-    )
-    formation["size_z"] = np.nan
-    for _, group in formation.groupby("date", sort=False):
-        valid = np.isfinite(group["ep_z"]) & np.isfinite(group["log_mv"])
-        values = group.loc[valid, "log_mv"]
-        std = float(values.std(ddof=0))
-        if len(values) and std > 0:
-            formation.loc[values.index, "size_z"] = (values - values.mean()) / std
-
-    return formation.rename(
-        columns={"date": "formation_date", "market_code": "code_at_formation"}
-    )
-
-
-def prepare_industry(
-    raw: pd.DataFrame,
-    mapping: dict[str, str],
-) -> pd.DataFrame:
-    industry = raw.copy()
-    industry["market_code"] = normalize_market_code(industry["stock_code"])
-    industry = industry.loc[~b_share_mask(industry["market_code"])].copy()
-    industry = apply_security_id(industry, mapping)
-    industry = industry.rename(
-        columns={"date": "formation_date", "indus_name_lv1": "industry_lv1"}
-    )[["formation_date", "security_id", "industry_lv1"]]
-    if industry.duplicated(["formation_date", "security_id"]).any():
-        duplicates = industry.loc[
-            industry.duplicated(["formation_date", "security_id"], keep=False)
-        ]
-        raise ValueError(f"Industry panel has mapped duplicates: {len(duplicates)}")
-    return industry
-
-
-def build_forward_returns(
-    market: pd.DataFrame,
-    calendar: pd.DataFrame,
-    mapping: dict[str, str],
-) -> pd.DataFrame:
-    canonical = apply_security_id(market, mapping)
-    if canonical.duplicated(["date", "security_id"]).any():
-        raise ValueError("Market panel is not unique after security mapping")
-
-    pieces = []
-    for row in calendar.itertuples(index=False):
-        entry = canonical.loc[
-            canonical["date"].eq(row.entry_date),
-            [
-                "security_id",
-                "market_code",
-                "close_adj",
-                "suspended_flag",
-                "at_up_limit",
-            ],
-        ].rename(
-            columns={
-                "market_code": "code_at_entry",
-                "close_adj": "entry_close_adj",
-                "suspended_flag": "entry_suspended",
-                "at_up_limit": "entry_at_up_limit",
-            }
-        )
-        exit_frame = canonical.loc[
-            canonical["date"].eq(row.exit_date),
-            [
-                "security_id",
-                "market_code",
-                "close_adj",
-                "suspended_flag",
-                "at_down_limit",
-            ],
-        ].rename(
-            columns={
-                "market_code": "code_at_exit",
-                "close_adj": "exit_close_adj",
-                "suspended_flag": "exit_suspended",
-                "at_down_limit": "exit_at_down_limit",
-            }
-        )
-        merged = entry.merge(exit_frame, on="security_id", how="outer", validate="one_to_one")
-        entry_present = merged["code_at_entry"].notna()
-        exit_present = merged["code_at_exit"].notna()
-        valid_entry_price = np.isfinite(merged["entry_close_adj"]) & merged["entry_close_adj"].gt(0)
-        valid_exit_price = np.isfinite(merged["exit_close_adj"]) & merged["exit_close_adj"].gt(0)
-        entry_not_suspended = merged["entry_suspended"].fillna(True).eq(False)
-        exit_not_suspended = merged["exit_suspended"].fillna(True).eq(False)
-        available = (
-            entry_present
-            & exit_present
-            & valid_entry_price
-            & valid_exit_price
-            & entry_not_suspended
-            & exit_not_suspended
-        )
-        merged["forward_return"] = np.where(
-            available,
-            merged["exit_close_adj"] / merged["entry_close_adj"] - 1.0,
-            np.nan,
-        )
-        merged["return_available"] = available
-        merged["missing_reason"] = np.select(
-            [
-                ~entry_present,
-                entry_present & ~entry_not_suspended,
-                entry_present & entry_not_suspended & ~valid_entry_price,
-                ~exit_present,
-                exit_present & ~exit_not_suspended,
-                exit_present & exit_not_suspended & ~valid_exit_price,
-            ],
-            [
-                "missing_entry_row",
-                "entry_suspended",
-                "invalid_entry_price",
-                "missing_exit_row",
-                "exit_suspended",
-                "invalid_exit_price",
-            ],
-            default="",
-        )
-        merged.insert(0, "formation_date", row.formation_date)
-        merged.insert(1, "entry_date", row.entry_date)
-        merged.insert(2, "exit_date", row.exit_date)
-        pieces.append(merged)
-
-    returns = pd.concat(pieces, ignore_index=True)
-    if returns.duplicated(["formation_date", "security_id"]).any():
-        raise ValueError("Forward returns are not unique by formation date + security")
-    valid = returns["return_available"]
-    if (returns.loc[valid, "forward_return"] < -1.0 - 1e-12).any():
-        raise ValueError("A forward return is below -100%")
-    return returns
-
-
-def build_regression_panel(
-    formation: pd.DataFrame,
-    industry: pd.DataFrame,
-    returns: pd.DataFrame,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    panel = formation.merge(
-        industry,
-        on=["formation_date", "security_id"],
-        how="left",
-        validate="one_to_one",
-    ).merge(
-        returns,
-        on=["formation_date", "security_id"],
-        how="left",
-        validate="one_to_one",
-    )
-    panel["ep_valid"] = np.isfinite(panel["ep_z"])
-    panel["size_valid"] = np.isfinite(panel["size_z"])
-    panel["industry_valid"] = panel["industry_lv1"].notna()
-    panel["return_valid"] = panel["return_available"].fillna(False) & np.isfinite(
-        panel["forward_return"]
-    )
-    panel["regression_eligible"] = (
-        panel["ep_valid"]
-        & panel["size_valid"]
-        & panel["industry_valid"]
-        & panel["return_valid"]
-    )
-    panel["missing_reason"] = panel["missing_reason"].fillna("missing_entry_row")
-
-    rows = []
-    for formation_date, group in panel.groupby("formation_date", sort=True):
-        after_ep = group["ep_valid"]
-        after_size = after_ep & group["size_valid"]
-        after_industry = after_size & group["industry_valid"]
-        after_return = after_industry & group["return_valid"]
-        eligible_before_return = group.loc[after_industry]
-        rows.append(
-            {
-                "formation_date": formation_date,
-                "n_formation_market": len(group),
-                "n_valid_ep": int(after_ep.sum()),
-                "n_valid_ep_size": int(after_size.sum()),
-                "n_valid_ep_size_industry": int(after_industry.sum()),
-                "n_valid_return_after_controls": int(after_return.sum()),
-                "n_final": int(group["regression_eligible"].sum()),
-                "n_missing_entry_row": int(
-                    eligible_before_return["missing_reason"].eq("missing_entry_row").sum()
-                ),
-                "n_entry_suspended": int(
-                    eligible_before_return["missing_reason"].eq("entry_suspended").sum()
-                ),
-                "n_missing_exit_row": int(
-                    eligible_before_return["missing_reason"].eq("missing_exit_row").sum()
-                ),
-                "n_exit_suspended": int(
-                    eligible_before_return["missing_reason"].eq("exit_suspended").sum()
-                ),
-                "n_invalid_endpoint_price": int(
-                    eligible_before_return["missing_reason"].isin(
-                        ["invalid_entry_price", "invalid_exit_price"]
-                    ).sum()
-                ),
-                "n_entry_at_up_limit": int(
-                    eligible_before_return["entry_at_up_limit"].fillna(False).sum()
-                ),
-                "n_exit_at_down_limit": int(
-                    eligible_before_return["exit_at_down_limit"].fillna(False).sum()
-                ),
-                "n_bse_final": int(
-                    group.loc[group["regression_eligible"], "security_id"]
-                    .astype("string")
-                    .str.endswith(".BJ", na=False)
-                    .sum()
-                ),
-            }
-        )
-    return panel, pd.DataFrame(rows)
+def _coefficient_delta(history: dict) -> float:
+    """最后一次迭代与上一次迭代的参数最大变化量，用于判断收敛裕度。"""
+    params = history.get("params") or []
+    if len(params) < 3:
+        return np.nan
+    last = np.asarray(params[-1], dtype=float)
+    previous = np.asarray(params[-2], dtype=float)
+    if last.shape != previous.shape:
+        return np.nan
+    return float(np.max(np.abs(last - previous)))
 
 
 def fit_monthly_rlm(
@@ -523,12 +85,12 @@ def fit_monthly_rlm(
         required_n = max(MIN_OBSERVATIONS, 10 * p)
         if n < required_n:
             raise ValueError(
-                f"{formation_date.date()}: observations {n} below required {required_n}"
+                f"{formation_date.date()}: 观测数 {n} 低于要求的 {required_n}"
             )
         rank = int(np.linalg.matrix_rank(design.to_numpy(float)))
         if rank != p:
             raise ValueError(
-                f"{formation_date.date()}: singular design rank={rank}, columns={p}"
+                f"{formation_date.date()}: 设计矩阵不满秩 rank={rank}, columns={p}"
             )
 
         model = sm.RLM(y, design, M=sm.robust.norms.HuberT(t=HUBER_T), missing="raise")
@@ -540,8 +102,10 @@ def fit_monthly_rlm(
             update_scale=True,
             conv="coefs",
         )
-        iterations = int(result.fit_history.get("iteration", MAX_ITER))
+        history = dict(result.fit_history)
+        iterations = int(history.get("iteration", MAX_ITER))
         converged = iterations < MAX_ITER
+        coef_delta = _coefficient_delta(history)
         residual = np.asarray(result.resid, dtype=float)
         weights = np.asarray(result.weights, dtype=float)
         y_values = y.to_numpy(float)
@@ -576,6 +140,7 @@ def fit_monthly_rlm(
                 "scale": float(result.scale),
                 "iterations": iterations,
                 "converged": converged,
+                "final_coef_delta": coef_delta,
                 "design_rank": rank,
                 "condition_number": float(np.linalg.cond(design.to_numpy(float))),
                 "pseudo_r2": pseudo_r2,
@@ -635,35 +200,39 @@ def fit_monthly_rlm(
     )
 
 
-def hac_mean(values: pd.Series, maxlags: int = HAC_LAGS) -> dict[str, float]:
+def iid_mean(values: pd.Series) -> dict[str, float]:
     clean = pd.to_numeric(values, errors="coerce").dropna().to_numpy(float)
     if len(clean) < 2:
-        return {"mean": np.nan, "hac_se": np.nan, "hac_t": np.nan, "hac_p": np.nan}
-    lags = min(maxlags, len(clean) - 1)
-    fit = sm.OLS(clean, np.ones((len(clean), 1))).fit(
-        cov_type="HAC",
-        cov_kwds={"maxlags": lags, "use_correction": True},
+        return {"mean": np.nan, "iid_se": np.nan, "iid_t": np.nan, "iid_p": np.nan}
+    mean = float(clean.mean())
+    std = float(clean.std(ddof=1))
+    se = std / np.sqrt(len(clean))
+    t_value = mean / se if se > 0 else np.nan
+    p_value = (
+        float(2.0 * student_t.sf(abs(t_value), df=len(clean) - 1))
+        if np.isfinite(t_value)
+        else np.nan
     )
     return {
-        "mean": float(fit.params[0]),
-        "hac_se": float(fit.bse[0]),
-        "hac_t": float(fit.tvalues[0]),
-        "hac_p": float(fit.pvalues[0]),
+        "mean": mean,
+        "iid_se": float(se),
+        "iid_t": float(t_value),
+        "iid_p": p_value,
     }
 
 
 def summarize_period(group: pd.DataFrame, label: str) -> dict[str, float | str | int]:
-    ep_hac = hac_mean(group["ep_beta"])
-    size_hac = hac_mean(group["size_beta"])
+    ep_iid = iid_mean(group["ep_beta"])
+    size_iid = iid_mean(group["size_beta"])
     return {
         "period": label,
         "months": len(group),
-        "ep_mean": ep_hac["mean"],
+        "ep_mean": ep_iid["mean"],
         "ep_median": float(group["ep_beta"].median()),
         "ep_std": float(group["ep_beta"].std(ddof=1)),
-        "ep_hac_se": ep_hac["hac_se"],
-        "ep_hac_t": ep_hac["hac_t"],
-        "ep_hac_p": ep_hac["hac_p"],
+        "ep_iid_se": ep_iid["iid_se"],
+        "ep_iid_t": ep_iid["iid_t"],
+        "ep_iid_p": ep_iid["iid_p"],
         "ep_positive_ratio": float(group["ep_beta"].gt(0).mean()),
         "ep_abs_monthly_z_ge_2_ratio": float(group["ep_zvalue"].abs().ge(2).mean()),
         "ep_positive_significant_ratio": float(
@@ -672,9 +241,9 @@ def summarize_period(group: pd.DataFrame, label: str) -> dict[str, float | str |
         "ep_negative_significant_ratio": float(
             (group["ep_beta"].lt(0) & group["ep_zvalue"].le(-2)).mean()
         ),
-        "size_mean": size_hac["mean"],
-        "size_hac_t": size_hac["hac_t"],
-        "size_hac_p": size_hac["hac_p"],
+        "size_mean": size_iid["mean"],
+        "size_iid_t": size_iid["iid_t"],
+        "size_iid_p": size_iid["iid_p"],
         "n_mean": float(group["n"].mean()),
         "n_min": int(group["n"].min()),
         "n_max": int(group["n"].max()),
@@ -741,7 +310,7 @@ def save_report(
 ) -> None:
     summary = overall.iloc[0]
     direction = "正" if summary["ep_mean"] > 0 else "负"
-    significance = "达到" if summary["ep_hac_p"] < 0.05 else "未达到"
+    significance = "达到" if summary["ep_iid_p"] < 0.05 else "未达到"
     strongest = monthly.nlargest(3, "ep_beta")
     weakest = monthly.nsmallest(3, "ep_beta")
     return_valid_total = int(sample_audit["n_valid_return_after_controls"].sum())
@@ -753,6 +322,8 @@ def save_report(
         f"**运行时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**",
         "",
         "> 本报告只包含 RLM 横截面回归，不包含 IC、分层回测、OLS 或 WLS 对照。",
+        "> 样本、前瞻收益与控制变量由 `代码/common` 共享模块统一构造，",
+        "> 与 `monthly_ols_ep_size.py` 完全一致，两者差异只来自估计方法。",
         "",
         "## 1. 回归口径",
         "",
@@ -765,7 +336,7 @@ def save_report(
         "                 + K-1 个申万一级行业哑变量 + epsilon[i,m+1]",
         "```",
         "",
-        f"RLM 使用 HuberT(t={HUBER_T})、MAD 残差尺度、H1 协方差；全期系数均值使用 Newey-West HAC(maxlags={HAC_LAGS}) 推断。",
+        f"RLM 使用 HuberT(c={HUBER_T})、MAD 残差尺度和 H1 协方差。单月统计量为系数除以 H1 标准误；年度和全期均值按照月度系数独立同方差假设，使用普通标准误和 Student t 分布推断，不使用 Newey-West HAC。",
         "",
         "## 2. 样本与映射",
         "",
@@ -783,32 +354,32 @@ def save_report(
         f"| EP 月均系数 | {pct(summary['ep_mean'], 4)} |",
         f"| EP 系数中位数 | {pct(summary['ep_median'], 4)} |",
         f"| EP 系数标准差 | {pct(summary['ep_std'], 4)} |",
-        f"| EP HAC 标准误 | {pct(summary['ep_hac_se'], 4)} |",
-        f"| EP HAC t 值 | {num(summary['ep_hac_t'])} |",
-        f"| EP HAC p 值 | {num(summary['ep_hac_p'])} |",
+        f"| EP IID 标准误 | {pct(summary['ep_iid_se'], 4)} |",
+        f"| EP IID t 值 | {num(summary['ep_iid_t'])} |",
+        f"| EP IID p 值 | {num(summary['ep_iid_p'])} |",
         f"| EP 系数为正的月份 | {pct(summary['ep_positive_ratio'])} |",
         f"| 单月 abs(z) >= 2 的比例 | {pct(summary['ep_abs_monthly_z_ge_2_ratio'])} |",
         f"| 正向且 z >= 2 的比例 | {pct(summary['ep_positive_significant_ratio'])} |",
         f"| 负向且 z <= -2 的比例 | {pct(summary['ep_negative_significant_ratio'])} |",
         f"| Size 月均系数 | {pct(summary['size_mean'], 4)} |",
-        f"| Size HAC t 值 | {num(summary['size_hac_t'])} |",
+        f"| Size IID t 值 | {num(summary['size_iid_t'])} |",
         f"| 平均 RLM 降权比例 | {pct(summary['downweighted_ratio_mean'])} |",
         f"| 平均权重低于 0.5 比例 | {pct(summary['weight_below_half_ratio_mean'])} |",
         f"| 平均伪 R² | {pct(summary['pseudo_r2_mean'])} |",
         "",
-        f"EP 月均系数方向为{direction}，HAC 显著性{significance} 5% 标准。EP 已按形成日横截面标准化，",
+        f"EP 月均系数方向为{direction}，独立同方差假设下的显著性{significance} 5% 标准。EP 已按形成日横截面标准化，",
         f"因此月均系数 {pct(summary['ep_mean'], 4)} 可解释为 EP 提高一个横截面标准差时，下一持有期收益平均变化约 {pct(summary['ep_mean'], 4)}。",
         f"简单乘以 12 得到的年化系数约为 {pct(summary['ep_mean'] * 12, 2)}，它是因子溢价尺度，不是可交易组合年化收益。",
         "",
         "## 4. 分年度结果",
         "",
-        "| 年份 | 月数 | EP 月均系数 | HAC t 值 | HAC p 值 | 正系数比例 | abs(z) >= 2 比例 | 平均样本数 |",
+        "| 年份 | 月数 | EP 月均系数 | IID t 值 | IID p 值 | 正系数比例 | abs(z) >= 2 比例 | 平均样本数 |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in annual.itertuples(index=False):
         lines.append(
             f"| {row.period} | {row.months} | {pct(row.ep_mean, 4)} | "
-            f"{num(row.ep_hac_t)} | {num(row.ep_hac_p)} | {pct(row.ep_positive_ratio)} | "
+            f"{num(row.ep_iid_t)} | {num(row.ep_iid_p)} | {pct(row.ep_positive_ratio)} | "
             f"{pct(row.ep_abs_monthly_z_ge_2_ratio)} | {row.n_mean:,.0f} |"
         )
 
@@ -830,7 +401,8 @@ def save_report(
         "",
         "## 6. 拟合诊断",
         "",
-        f"- 收敛月份：{int(monthly['converged'].sum())}/{len(monthly)}；迭代次数中位数为 {monthly['iterations'].median():.0f}。",
+        f"- 收敛月份：{int(monthly['converged'].sum())}/{len(monthly)}；迭代次数中位数为 {monthly['iterations'].median():.0f}，最大 {int(monthly['iterations'].max())}。",
+        f"- 最后一次迭代参数最大变化量中位数：{monthly['final_coef_delta'].median():.3e}（收敛容差 {TOL:.0e}）。",
         f"- 条件数范围：{monthly['condition_number'].min():.2f} 至 {monthly['condition_number'].max():.2f}。",
         f"- 北交所最终样本在代码切换附近未发生由代码连接失败造成的断层，逐月数量见 `rlm_sample_audit.csv`。",
         "- 涨停买入和跌停卖出只做数量标记，未用于 RLM 样本筛选；实际可交易性留待分层回测处理。",
@@ -840,7 +412,7 @@ def save_report(
         "",
         "## 7. 输出文件",
         "",
-        "- `bse_code_mapping.csv/.parquet`：北交所 242 对新旧代码映射及匹配证据。",
+        "- `bse_code_mapping.csv/.parquet`：北交所新旧代码映射及匹配证据。",
         "- `forward_monthly_returns.parquet`：固定调仓端点的复权前瞻收益。",
         "- `rlm_regression_sample.parquet`：进入回归的逐股样本、残差和稳健权重。",
         "- `rlm_monthly_results.csv/.parquet`：逐月 EP/Size 系数及拟合诊断。",
@@ -857,16 +429,28 @@ def main() -> None:
         test_config = json.load(file)
     test_start = pd.Timestamp(test_config["formal_test_start_date"])
 
-    print("Reading market calendar...", flush=True)
-    market_dates = read_market_dates(MARKET_PATH)
+    print("Scanning market index (calendar + BSE code switch)...", flush=True)
+    index = scan_market_index(MARKET_PATH)
+    market_dates = index.dates
+    transition_old_date = index.old_bse_last_date
+    transition_new_date = index.new_bse_first_date
+    if transition_old_date is None or transition_new_date is None:
+        raise ValueError("无法从行情数据中识别北交所代码切换日")
+    print(
+        f"  trading days={len(market_dates):,}; BSE switch "
+        f"{transition_old_date.date()} -> {transition_new_date.date()} "
+        f"({index.expected_conversions} conversions)",
+        flush=True,
+    )
+
     calendar = build_monthly_calendar(market_dates, test_start)
     signal_dates = set(pd.to_datetime(calendar["formation_date"]))
     return_dates = set(pd.to_datetime(calendar["entry_date"])) | set(
         pd.to_datetime(calendar["exit_date"])
     )
     selected_market_dates = signal_dates | return_dates | {
-        TRANSITION_OLD_DATE,
-        TRANSITION_NEW_DATE,
+        transition_old_date,
+        transition_new_date,
     }
 
     print(f"Reading {len(selected_market_dates)} selected market dates...", flush=True)
@@ -891,7 +475,12 @@ def main() -> None:
     market = prepare_market_snapshot(market_raw)
 
     print("Deriving and validating BSE code mapping...", flush=True)
-    mapping_frame = derive_bse_mapping(market)
+    mapping_frame = derive_bse_mapping(
+        market,
+        transition_old_date,
+        transition_new_date,
+        expected_pairs=index.expected_conversions,
+    )
     mapping = dict(zip(mapping_frame["old_code"], mapping_frame["new_code"]))
     mapping_frame.to_parquet(OUT_DIR / "bse_code_mapping.parquet", index=False)
     mapping_frame.to_csv(OUT_DIR / "bse_code_mapping.csv", index=False, encoding="utf-8-sig")
@@ -907,7 +496,7 @@ def main() -> None:
     industry = prepare_industry(industry_raw, mapping)
 
     print("Building fixed-endpoint adjusted forward returns...", flush=True)
-    forward_returns = build_forward_returns(market, calendar, mapping)
+    forward_returns = build_endpoint_forward_returns(market, calendar, mapping)
     forward_returns.to_parquet(OUT_DIR / "forward_monthly_returns.parquet", index=False)
 
     print("Building monthly regression samples...", flush=True)
@@ -924,7 +513,7 @@ def main() -> None:
 
     if not monthly["converged"].all():
         failed = monthly.loc[~monthly["converged"], "formation_date"].dt.strftime("%Y-%m-%d").tolist()
-        raise RuntimeError(f"RLM did not converge for: {failed}")
+        raise RuntimeError(f"以下月份 RLM 未收敛：{failed}")
 
     monthly.to_parquet(OUT_DIR / "rlm_monthly_results.parquet", index=False)
     monthly.to_csv(OUT_DIR / "rlm_monthly_results.csv", index=False, encoding="utf-8-sig")
@@ -960,14 +549,20 @@ def main() -> None:
             "max_iterations": MAX_ITER,
             "tolerance": TOL,
         },
-        "time_series_inference": {"method": "Newey-West HAC", "maxlags": HAC_LAGS},
+        "time_series_inference": {
+            "method": "IID mean t-test",
+            "standard_error": "sample standard deviation of monthly coefficients / sqrt(months)",
+            "reference_distribution": "Student t with months - 1 degrees of freedom",
+            "newey_west_hac_applied": False,
+        },
         "periods": len(calendar),
         "first_formation_date": str(calendar["formation_date"].min().date()),
         "last_formation_date": str(calendar["formation_date"].max().date()),
         "bse_mapping": {
             "pairs": len(mapping_frame),
-            "old_last_date": str(TRANSITION_OLD_DATE.date()),
-            "new_first_date": str(TRANSITION_NEW_DATE.date()),
+            "old_last_date": str(pd.Timestamp(transition_old_date).date()),
+            "new_first_date": str(pd.Timestamp(transition_new_date).date()),
+            "detected_from_data": True,
             "method": "exact close/pre_close; exact share_total resolves duplicate-price candidates",
         },
     }
@@ -989,8 +584,8 @@ def main() -> None:
     print("RLM completed", flush=True)
     print(f"months={len(monthly)}", flush=True)
     print(f"ep_mean={row['ep_mean']:.10f}", flush=True)
-    print(f"ep_hac_t={row['ep_hac_t']:.6f}", flush=True)
-    print(f"ep_hac_p={row['ep_hac_p']:.6f}", flush=True)
+    print(f"ep_iid_t={row['ep_iid_t']:.6f}", flush=True)
+    print(f"ep_iid_p={row['ep_iid_p']:.6f}", flush=True)
     print(f"ep_positive_ratio={row['ep_positive_ratio']:.6f}", flush=True)
     print(f"saved={OUT_DIR}", flush=True)
 
