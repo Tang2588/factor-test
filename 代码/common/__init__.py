@@ -24,6 +24,7 @@ from .market import (
     prepare_market_snapshot,
 )
 from .panel import (
+    add_neutralized_residual,
     build_regression_panel,
     prepare_formation_panel,
     prepare_industry,
@@ -63,6 +64,7 @@ __all__ = [
     "TEST_START_PATH",
     "TOL",
     "MarketIndex",
+    "add_neutralized_residual",
     "apply_security_id",
     "b_share_mask",
     "build_endpoint_forward_returns",

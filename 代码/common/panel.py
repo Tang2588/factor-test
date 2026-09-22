@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 
 from .market import apply_security_id, extract_code6
+from .paths import MIN_OBSERVATIONS
 
 
 def prepare_formation_panel(
@@ -165,3 +167,45 @@ def build_regression_panel(
             }
         )
     return panel, pd.DataFrame(rows)
+
+
+def add_neutralized_residual(
+    panel: pd.DataFrame,
+    min_observations: int = MIN_OBSERVATIONS,
+) -> pd.DataFrame:
+    """追加一列 ``neutral_residual``：因子对「截距 + 规模 + K-1 个行业哑变量」回归的残差。
+
+    残差表示因子中不能被行业与市值解释的部分，即行业和市值中性化后的暴露。
+    Rank IC 与分层回测都用它，保证两个环节口径一致。非回归样本行留空。
+    """
+    result = panel.copy()
+    result["neutral_residual"] = np.nan
+    for formation_date, raw_group in panel.groupby("formation_date", sort=True):
+        data = raw_group.loc[raw_group["regression_eligible"]]
+        if data.empty:
+            continue
+        dummies = pd.get_dummies(
+            data["industry_lv1"].astype(str),
+            prefix="industry",
+            drop_first=True,
+            dtype=float,
+        )
+        controls = pd.concat(
+            [
+                pd.Series(1.0, index=data.index, name="const"),
+                data["size_z"].astype(float).rename("size_z"),
+                dummies,
+            ],
+            axis=1,
+        )
+        n, p = controls.shape
+        required_n = max(min_observations, 10 * p)
+        if n < required_n:
+            raise ValueError(
+                f"{formation_date.date()}: 观测数 {n} 低于要求的 {required_n}"
+            )
+        if int(np.linalg.matrix_rank(controls.to_numpy(float))) != p:
+            raise ValueError(f"{formation_date.date()}: 中性化回归设计矩阵不满秩")
+        fitted = sm.OLS(data["factor_z"].astype(float), controls, missing="raise").fit()
+        result.loc[data.index, "neutral_residual"] = np.asarray(fitted.resid, dtype=float)
+    return result

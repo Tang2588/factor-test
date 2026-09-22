@@ -33,6 +33,10 @@ python "代码\cross_section_rlm.py" --factor "D:/其它路径/my.parquet"   # �
 python "代码\rank_ic.py"
 python "代码\rank_ic.py" --factor pb
 
+# 行业内分层回测：输出组合绩效与回测图（实测约 18 秒）
+python "代码\layered_backtest.py"
+python "代码\layered_backtest.py" --factor pb
+
 # 交付验收
 python "代码\factor_verify.py"
 ```
@@ -46,6 +50,7 @@ python "代码\factor_verify.py"
 | 因子计算 | `代码/step5_MAD去极值_Z标准化.py` | 逐日横截面 MAD 去极值与 Z 标准化 |
 | 回归分析 | `代码/cross_section_rlm.py`、`代码/cross_section_ols.py` | 通用月度横截面 Huber RLM 与同口径 OLS，读取任意因子文件 |
 | IC 检验 | `代码/rank_ic.py` | 通用月度 Rank IC：行业与市值中性化后计算 IC / IR，读取任意因子文件 |
+| 分层回测 | `代码/layered_backtest.py` | 通用行业内分层回测：中性化残差行业内分五组，输出组合绩效、净值与换手率图 |
 | 分析与绘图 | `代码/plot_*`、`代码/analyze_mad_standardization.py` | 描述性统计、分布图、行业图 |
 | 验收 | `代码/factor_verify.py`、`代码/EP因子交付验证.py` | 独立一致性检查 |
 
@@ -68,7 +73,7 @@ python "代码\cross_section_rlm.py" --factor pb    # → 回归结果/pb/RLM_H1
 | `中间结果/` | 原始 EP/PE、财务版本、点时间审计、处理过程数据 | 否 |
 | `因子结果/` | 最终标准化 EP、PE 因子 | 否 |
 | `标准化统计/` | MAD、Z 标准化统计表与图形 | 否 |
-| `回归结果/` | 按因子分目录：`回归结果/<因子名>/RLM_H1_独立同方差/`、`OLS_月度/`、`RankIC/`，另含 `_历史口径存档/` | 否 |
+| `回归结果/` | 按因子分目录：`回归结果/<因子名>/RLM_H1_独立同方差/`、`OLS_月度/`、`RankIC/`、`分层回测/`，另含 `_历史口径存档/` | 否 |
 | `图形/` | 文档使用的公共图形 | 否 |
 
 ## 主要文档
